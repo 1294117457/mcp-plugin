@@ -28,7 +28,7 @@ src/
 ### Development (via --patch)
 
 ```bash
-pnpm dsh web --patch "E:/codes/claude/ID/mcp-plugin/codes/tohelper/cordis.patch.yml"
+pnpm dsh web --patch "/home/dustp/codes/mcp-plugin/codes/tohelper/cordis.patch.yml"
 ```
 
 The plugin loads on the host plane and accesses agent-scoped tools via the `agents` service events. No DSH source modifications required.

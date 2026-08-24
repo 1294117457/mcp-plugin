@@ -38,6 +38,7 @@ import { loadSkills } from './tabs/skills'
   // State
   let isOpen = false
   let currentTab = 'tools'
+  let panelHeight = 700
 
   const btn = document.getElementById('th-btn')!
   const panel = document.getElementById('th-panel')!
@@ -116,7 +117,7 @@ import { loadSkills } from './tabs/skills'
   function positionPanel(): void {
     const btnRect = btn.getBoundingClientRect()
     const panelWidth = 420
-    const panelHeight = 620
+    panelHeight = 700
 
     // Prefer placing panel above the button
     let top = btnRect.top - panelHeight - 12
