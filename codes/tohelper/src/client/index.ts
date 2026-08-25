@@ -1,7 +1,7 @@
-import { styles } from './styles'
-import { loadTools } from './tabs/tools'
-import { loadMcp } from './tabs/mcp'
-import { loadSkills } from './tabs/skills'
+import { styles } from './styles/index'
+import { loadTools } from './view/tools-tab/index'
+import { loadMcp } from './view/mcp-tab/index'
+import { loadSkills } from './view/skills-tab/index'
 
 ;(function init() {
   if (document.getElementById('th-root')) return

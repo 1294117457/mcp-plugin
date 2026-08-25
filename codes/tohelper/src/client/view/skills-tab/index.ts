@@ -1,5 +1,5 @@
-import { api, type SkillItem } from '../api'
-import { esc } from '../utils'
+import { api, type SkillItem } from '../../api'
+import { esc } from '../../utils'
 
 let skills: SkillItem[] = []
 

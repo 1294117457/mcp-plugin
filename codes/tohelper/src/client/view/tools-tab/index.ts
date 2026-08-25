@@ -1,5 +1,5 @@
-import { api, type ToolsResponse } from '../api'
-import { esc } from '../utils'
+import { api, type ToolsResponse } from '../../api'
+import { esc } from '../../utils'
 
 interface ToolItem { name: string; description: string; denied?: boolean }
 
@@ -54,7 +54,6 @@ function renderToolItem(t: ToolItem, displayName: string, isExpanded: boolean): 
 }
 
 function render(container: HTMLElement): void {
-  // Only show active (non-denied) tools
   const activeBuiltin = data.builtin
   const activeMcp = data.mcp.filter(t => !t.denied)
 
@@ -66,7 +65,6 @@ function render(container: HTMLElement): void {
 
   let html = `<div class="th-tools-body">`
 
-  // Filter bar — show only active counts
   html += `<div class="th-tools-filter">
     <button class="${activeFilter === 'all' ? 'active' : ''}" data-filter="all">
       使用中 <span class="n">${totalActive}</span>
@@ -79,10 +77,8 @@ function render(container: HTMLElement): void {
     </button>
   </div>`
 
-  // Scrollable area
   html += `<div class="th-tools-scroll">`
 
-  // Builtin section
   if (showBuiltin && builtinCount > 0) {
     const collapsed = collapsedServers.has('builtin')
     html += `<div class="th-collapse-group">
@@ -98,7 +94,6 @@ function render(container: HTMLElement): void {
     html += `</div></div>`
   }
 
-  // MCP section — only active tools, group by server
   if (showMcp && mcpCount > 0) {
     const groups = groupByServer(activeMcp)
     const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length)
@@ -119,19 +114,16 @@ function render(container: HTMLElement): void {
     }
   }
 
-  // Empty state
   if (!totalActive) {
     html += `<div class="th-empty">暂无工具（等待 Agent 创建）</div>`
   }
 
   html += `</div></div>`
-
   container.innerHTML = html
   bindEvents(container)
 }
 
 function bindEvents(container: HTMLElement): void {
-  // Filter buttons
   container.querySelectorAll<HTMLButtonElement>('.th-tools-filter button').forEach(btn => {
     btn.addEventListener('click', () => {
       activeFilter = btn.dataset.filter as 'all' | 'builtin' | 'mcp'
@@ -139,7 +131,6 @@ function bindEvents(container: HTMLElement): void {
     })
   })
 
-  // Collapse/expand server groups
   container.querySelectorAll<HTMLElement>('.th-collapse-header[data-srv]').forEach(header => {
     header.addEventListener('click', () => {
       const srv = header.dataset.srv!
@@ -149,7 +140,6 @@ function bindEvents(container: HTMLElement): void {
     })
   })
 
-  // Click tool item to expand/collapse detail
   container.querySelectorAll<HTMLElement>('.th-i-wrap[data-tool-id]').forEach(wrap => {
     const clickArea = wrap.querySelector('.th-i') as HTMLElement
     clickArea?.addEventListener('click', () => {
