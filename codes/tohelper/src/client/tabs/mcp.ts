@@ -6,8 +6,9 @@ let servers: McpServer[] = []
 let denied = new Set<string>()
 let pending = new Set<string>()
 let showJsonInput = false
-let activeServer: string | null = null // null = show all
+let activeServer: string | null = null
 let collapsedServers = new Set<string>()
+let expandedMcpTool: string | null = null
 
 export async function loadMcp(container: HTMLElement): Promise<void> {
   container.innerHTML = '<div class="th-empty">加载中...</div>'
@@ -64,24 +65,27 @@ function render(container: HTMLElement): void {
 
   const showAll = !activeServer
   const totalTools = mcpTools.length
+  const totalEnabled = mcpTools.filter(t => !pending.has(t.name)).length
 
   html += `<div class="th-mcp-section flexible" id="th-mcp-tools">
     <div class="th-sec-t">
       MCP 工具
-      <span class="th-cnt">${totalTools}</span>
+      <span class="th-cnt">${totalEnabled}/${totalTools}</span>
       ${activeServer
         ? `<span style="font-size:10px;color:#6b7280;font-weight:400;margin-left:4px">— ${esc(activeServer)}</span>`
         : `<span style="font-size:10px;color:#9ca3af;font-weight:400;margin-left:4px">全部</span>`
       }
     </div>`
 
-  // Filter bar (quick-switch activeServer)
+  // Filter bar (quick-switch activeServer) — show enabled/total per server
   html += `<div class="th-mcp-filter-bar">
-    <span class="th-mcp-filter-tag${showAll ? ' active' : ''}" data-filter="">全部 <span class="cnt">${totalTools}</span></span>`
+    <span class="th-mcp-filter-tag${showAll ? ' active' : ''}" data-filter="">全部 <span class="cnt">${totalEnabled}/${totalTools}</span></span>`
   for (const s of servers) {
-    const count = grouped.get(s.serverName)?.length ?? 0
-    if (count === 0) continue
-    html += `<span class="th-mcp-filter-tag${activeServer === s.serverName ? ' active' : ''}" data-filter="${esc(s.serverName)}">${esc(s.serverName)} <span class="cnt">${count}</span></span>`
+    const srvTools = grouped.get(s.serverName) ?? []
+    const srvTotal = srvTools.length
+    if (srvTotal === 0) continue
+    const srvEnabled = srvTools.filter(t => !pending.has(t.name)).length
+    html += `<span class="th-mcp-filter-tag${activeServer === s.serverName ? ' active' : ''}" data-filter="${esc(s.serverName)}">${esc(s.serverName)} <span class="cnt">${srvEnabled}/${srvTotal}</span></span>`
   }
   html += `</div>`
 
@@ -93,23 +97,34 @@ function render(container: HTMLElement): void {
   for (const [srv, srvTools] of sortedGroups) {
     const collapsed = collapsedServers.has(srv)
     const filtered = activeServer && activeServer !== srv
-    if (filtered) continue // hide tools from non-active servers when filtering
+    if (filtered) continue
+    const srvEnabled = srvTools.filter(t => !pending.has(t.name)).length
     html += `<div class="th-collapse-group">
       <div class="th-collapse-header${collapsed ? ' collapsed' : ''}" data-srv="${esc(srv)}">
         <span class="arrow">&#9660;</span>
         <span class="srv-name">${esc(srv)}</span>
-        <span class="th-cnt">${srvTools.length}</span>
+        <span class="th-cnt">${srvEnabled}/${srvTools.length}</span>
       </div>
-      <div class="th-collapse-body${collapsed ? ' collapsed' : ''}" style="max-height:${collapsed ? 0 : srvTools.length * 36 + 8}px">`
+      <div class="th-collapse-body${collapsed ? ' collapsed' : ''}" style="max-height:${collapsed ? 0 : srvTools.length * 56 + 8}px">`
     for (const t of srvTools) {
       const checked = !pending.has(t.name)
       const disabled = !checked
       const shortName = t.name.replace(/^mcp__[^_]+__/, '')
-      html += `<label class="th-i${disabled ? ' disabled' : ''}" style="cursor:pointer">
-        <input type="checkbox" ${checked ? 'checked' : ''} data-tool="${esc(t.name)}" style="width:13px;height:13px;accent-color:#4f46e5;flex-shrink:0">
-        <span class="nm" title="${esc(t.name)}">${esc(shortName)}</span>
-        <span class="ds">${esc((t.description || '').slice(0, 28))}</span>
-      </label>`
+      const desc = t.description || '暂无描述'
+      const isExpanded = expandedMcpTool === t.name
+      html += `<div class="th-i-wrap${isExpanded ? ' expanded' : ''}" data-tool-id="${esc(t.name)}">
+        <label class="th-i${disabled ? ' disabled' : ''}" style="cursor:pointer" title="${esc(desc)}">
+          <input type="checkbox" ${checked ? 'checked' : ''} data-tool="${esc(t.name)}" style="width:13px;height:13px;accent-color:#4f46e5;flex-shrink:0">
+          <span class="nm" title="${esc(t.name)}">${esc(shortName)}</span>
+          <span class="ds">${esc(desc.slice(0, 28))}${desc.length > 28 ? '...' : ''}</span>
+        </label>
+        <div class="th-i-detail">
+          <div class="detail-label">描述</div>
+          <div class="detail-desc">${esc(desc)}</div>
+          <div class="detail-label">完整名称</div>
+          <div><span class="detail-name">${esc(t.name)}</span></div>
+        </div>
+      </div>`
     }
     html += `</div></div>`
   }
@@ -203,7 +218,25 @@ function bindEvents(container: HTMLElement): void {
       const collapsed = collapsedServers.has(srv)
       header.classList.toggle('collapsed', collapsed)
       body.classList.toggle('collapsed', collapsed)
-      body.style.maxHeight = collapsed ? '0px' : `${body.querySelectorAll('.th-i').length * 36 + 8}px`
+      body.style.maxHeight = collapsed ? '0px' : `${body.querySelectorAll('.th-i-wrap').length * 56 + 8}px`
+    })
+  })
+
+  // Click tool item to expand/collapse detail
+  container.querySelectorAll<HTMLElement>('.th-i-wrap[data-tool-id]').forEach(wrap => {
+    const nameSpan = wrap.querySelector('.nm') as HTMLElement
+    nameSpan?.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const toolId = wrap.dataset.toolId!
+      if (expandedMcpTool === toolId) {
+        expandedMcpTool = null
+        wrap.classList.remove('expanded')
+      } else {
+        container.querySelector('.th-i-wrap.expanded')?.classList.remove('expanded')
+        expandedMcpTool = toolId
+        wrap.classList.add('expanded')
+      }
     })
   })
 

@@ -387,6 +387,48 @@ export const styles = `
 .th-tg.denied { background: #fee2e2; color: #dc2626; }
 .th-tg.skl { background: #dcfce7; color: #16a34a; }
 
+/* --- Tool detail expand --- */
+.th-i-wrap {
+  border-bottom: 1px solid transparent;
+}
+.th-i-wrap.expanded {
+  background: #f9fafb;
+  border-bottom-color: #f3f4f6;
+  border-radius: 6px;
+  margin: 2px 6px;
+}
+.th-i-wrap.expanded > .th-i { background: transparent; }
+.th-i-detail {
+  display: none;
+  padding: 4px 14px 10px 38px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #4b5563;
+  word-break: break-word;
+}
+.th-i-wrap.expanded .th-i-detail { display: block; }
+.th-i-detail .detail-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+.th-i-detail .detail-desc {
+  color: #374151;
+  margin-bottom: 6px;
+}
+.th-i-detail .detail-name {
+  font-family: monospace;
+  font-size: 10px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
 .th-ftr {
   display: flex;
   align-items: center;

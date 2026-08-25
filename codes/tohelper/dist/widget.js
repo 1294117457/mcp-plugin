@@ -1,4 +1,4 @@
-(function(){"use strict";const J=`
+(function(){"use strict";const Y=`
 #th-root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13px;
@@ -387,6 +387,48 @@
 .th-tg.denied { background: #fee2e2; color: #dc2626; }
 .th-tg.skl { background: #dcfce7; color: #16a34a; }
 
+/* --- Tool detail expand --- */
+.th-i-wrap {
+  border-bottom: 1px solid transparent;
+}
+.th-i-wrap.expanded {
+  background: #f9fafb;
+  border-bottom-color: #f3f4f6;
+  border-radius: 6px;
+  margin: 2px 6px;
+}
+.th-i-wrap.expanded > .th-i { background: transparent; }
+.th-i-detail {
+  display: none;
+  padding: 4px 14px 10px 38px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #4b5563;
+  word-break: break-word;
+}
+.th-i-wrap.expanded .th-i-detail { display: block; }
+.th-i-detail .detail-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+.th-i-detail .detail-desc {
+  color: #374151;
+  margin-bottom: 6px;
+}
+.th-i-detail .detail-name {
+  font-family: monospace;
+  font-size: 10px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
 .th-ftr {
   display: flex;
   align-items: center;
@@ -409,67 +451,80 @@
 .th-btn-s:hover { opacity: 0.85; }
 .th-rst { color: #6b7280; background: #fff; border: 1px solid #e5e7eb; }
 .th-apl { color: #fff; background: #4f46e5; }
-`,B="/api/tohelper";async function H(t){return(await fetch(`${B}${t}`)).json()}async function L(t,e){return(await fetch(`${B}${t}`,{method:"POST",headers:{"Content-Type":"application/json"},body:e?JSON.stringify(e):void 0})).json()}const m={getTools:()=>H("/tools"),getSkills:()=>H("/skills"),getMcpServers:()=>H("/mcp/servers"),addMcpServer:t=>L("/mcp/add",t),addMcpBatch:t=>L("/mcp/add-batch",t),removeMcpServer:t=>L("/mcp/remove",{serverName:t}),denyTools:t=>L("/mcp/deny",{names:t}),resetDeny:()=>L("/mcp/reset"),getStatus:()=>H("/status")};function i(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}let S={ok:!1,builtin:[],mcp:[]},v="all",E=new Set;async function R(t){t.innerHTML='<div class="th-empty">加载中...</div>';try{S=await m.getTools(),P(t)}catch(e){t.innerHTML=`<div class="th-empty">加载失败: ${i(e.message)}</div>`}}function X(t){const e=t.match(/^mcp__([^_]+)__/);return e?e[1]:"unknown"}function Y(t){const e=new Map;for(const l of t){const r=X(l.name);e.has(r)||e.set(r,[]),e.get(r).push(l)}return e}function P(t){const e=S.builtin.length,l=S.mcp.length,r=v==="all"||v==="builtin",x=v==="all"||v==="mcp";let c='<div class="th-tools-body">';if(c+=`<div class="th-tools-filter">
-    <button class="${v==="all"?"active":""}" data-filter="all">
-      全部 <span class="n">${e+l}</span>
+`,J="/api/tohelper";async function _(t){return(await fetch(`${J}${t}`)).json()}async function z(t,e){return(await fetch(`${J}${t}`,{method:"POST",headers:{"Content-Type":"application/json"},body:e?JSON.stringify(e):void 0})).json()}const y={getTools:()=>_("/tools"),getSkills:()=>_("/skills"),getMcpServers:()=>_("/mcp/servers"),addMcpServer:t=>z("/mcp/add",t),addMcpBatch:t=>z("/mcp/add-batch",t),removeMcpServer:t=>z("/mcp/remove",{serverName:t}),denyTools:t=>z("/mcp/deny",{names:t}),resetDeny:()=>z("/mcp/reset"),getStatus:()=>_("/status")};function d(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}let P={ok:!1,builtin:[],mcp:[]},w="all",T=new Set,q=null;async function D(t){t.innerHTML='<div class="th-empty">加载中...</div>';try{P=await y.getTools(),O(t)}catch(e){t.innerHTML=`<div class="th-empty">加载失败: ${d(e.message)}</div>`}}function W(t){const e=t.match(/^mcp__([^_]+)__/);return e?e[1]:"unknown"}function F(t){const e=new Map;for(const l of t){const n=W(l.name);e.has(n)||e.set(n,[]),e.get(n).push(l)}return e}function R(t,e,l){const n=t.description||"暂无描述";return`<div class="th-i-wrap${l?" expanded":""}" data-tool-id="${d(t.name)}">
+    <div class="th-i clickable" title="${d(n)}">
+      ${t.denied!==void 0?'<span class="th-tg mcp">MCP</span>':'<span style="color:#d1d5db;font-size:10px;flex-shrink:0">&#128274;</span>'}
+      <span class="nm">${d(e)}</span>
+      <span class="ds">${d(n.slice(0,40))}${n.length>40?"...":""}</span>
+    </div>
+    <div class="th-i-detail">
+      <div class="detail-label">描述</div>
+      <div class="detail-desc">${d(n)}</div>
+      <div class="detail-label">完整名称</div>
+      <div><span class="detail-name">${d(t.name)}</span></div>
+    </div>
+  </div>`}function O(t){const e=P.builtin,l=P.mcp.filter(a=>!a.denied),n=e.length,x=l.length,u=n+x,o=w==="all"||w==="builtin",i=w==="all"||w==="mcp";let s='<div class="th-tools-body">';if(s+=`<div class="th-tools-filter">
+    <button class="${w==="all"?"active":""}" data-filter="all">
+      使用中 <span class="n">${u}</span>
     </button>
-    <button class="${v==="builtin"?"active":""}" data-filter="builtin">
-      内置 <span class="n">${e}</span>
+    <button class="${w==="builtin"?"active":""}" data-filter="builtin">
+      内置 <span class="n">${n}</span>
     </button>
-    <button class="${v==="mcp"?"active":""}" data-filter="mcp">
-      MCP <span class="n">${l}</span>
+    <button class="${w==="mcp"?"active":""}" data-filter="mcp">
+      MCP <span class="n">${x}</span>
     </button>
-  </div>`,c+='<div class="th-tools-scroll">',r&&e>0){const s=E.has("builtin");c+=`<div class="th-collapse-group">
-      <div class="th-collapse-header${s?" collapsed":""}" data-srv="builtin">
+  </div>`,s+='<div class="th-tools-scroll">',o&&n>0){const a=T.has("builtin");s+=`<div class="th-collapse-group">
+      <div class="th-collapse-header${a?" collapsed":""}" data-srv="builtin">
         <span class="arrow">&#9660;</span>
-        <span>内置工具</span>
-        <span class="th-cnt">${e}</span>
+        <span class="srv-name">内置工具</span>
+        <span class="th-cnt">${n}</span>
       </div>
-      <div class="th-collapse-body${s?" collapsed":""}" style="max-height:${s?0:S.builtin.length*40+8}px">`;for(const a of S.builtin)c+=`<div class="th-i">
-        <span style="color:#d1d5db;font-size:10px;flex-shrink:0">&#128274;</span>
-        <span class="nm">${i(a.name)}</span>
-        <span class="ds">${i(a.description.slice(0,60))}</span>
-      </div>`;c+="</div></div>"}if(x&&l>0){const a=[...Y(S.mcp).entries()].sort((o,n)=>n[1].length-o[1].length);for(const[o,n]of a){const d=E.has(o);c+=`<div class="th-collapse-group">
-        <div class="th-collapse-header${d?" collapsed":""}" data-srv="${i(o)}">
+      <div class="th-collapse-body${a?" collapsed":""}">`;for(const r of e)s+=R(r,r.name,q===r.name);s+="</div></div>"}if(i&&x>0){const r=[...F(l).entries()].sort((h,f)=>f[1].length-h[1].length);for(const[h,f]of r){const c=T.has(h);s+=`<div class="th-collapse-group">
+        <div class="th-collapse-header${c?" collapsed":""}" data-srv="${d(h)}">
           <span class="arrow">&#9660;</span>
-          <span class="srv-name">${i(o)}</span>
-          <span class="th-cnt">${n.length}</span>
+          <span class="srv-name">${d(h)}</span>
+          <span class="th-cnt">${f.length}</span>
         </div>
-        <div class="th-collapse-body${d?" collapsed":""}" style="max-height:${d?0:n.length*40+8}px">`;for(const f of n){const h=f.name.replace(/^mcp__[^_]+__/,"");c+=`<div class="th-i${f.denied?" disabled":""}">
-          <span class="nm">${i(h)}</span>
-          <span class="th-tg ${f.denied?"denied":"mcp"}">${f.denied?"已禁用":"MCP"}</span>
-        </div>`}c+="</div></div>"}}!e&&!l&&(c+='<div class="th-empty">暂无工具（等待 Agent 创建）</div>'),c+="</div></div>",t.innerHTML=c,D(t)}function D(t){t.querySelectorAll(".th-tools-filter button").forEach(e=>{e.addEventListener("click",()=>{v=e.dataset.filter,P(t)})}),t.querySelectorAll(".th-collapse-header[data-srv]").forEach(e=>{e.addEventListener("click",()=>{const l=e.dataset.srv;E.has(l)?E.delete(l):E.add(l);const r=e.nextElementSibling,x=E.has(l);e.classList.toggle("collapsed",x),r.classList.toggle("collapsed",x),r.style.maxHeight=x?"0px":`${r.querySelectorAll(".th-i").length*40+8}px`})})}let I={ok:!1,builtin:[],mcp:[]},z=[],N=new Set,w=new Set,_=!1,b=null,T=new Set;async function M(t){t.innerHTML='<div class="th-empty">加载中...</div>';try{const[e,l]=await Promise.all([m.getTools(),m.getMcpServers()]);I=e,z=l.servers,N=new Set(l.denied),w=new Set(N),A(t)}catch{t.innerHTML='<div class="th-empty">加载 MCP 数据失败</div>'}}function A(t){var a;let e="";e+='<div class="th-mcp-body">',e+=`<div class="th-mcp-section" id="th-mcp-servers">
-    <div class="th-sec-t">已连接 <span class="th-cnt">${z.length}</span></div>
-    <div class="th-mcp-scroll">`,z.length||(e+='<div class="th-mcp-hint">暂无已连接的 MCP 服务</div>');for(const o of z){const n=b===o.serverName;e+=`<div class="th-i server-item clickable${n?" selected":""}" data-srv="${i(o.serverName)}">
+        <div class="th-collapse-body${c?" collapsed":""}">`;for(const v of f){const $=v.name.replace(/^mcp__[^_]+__/,"");s+=R(v,$,q===v.name)}s+="</div></div>"}}u||(s+='<div class="th-empty">暂无工具（等待 Agent 创建）</div>'),s+="</div></div>",t.innerHTML=s,G(t)}function G(t){t.querySelectorAll(".th-tools-filter button").forEach(e=>{e.addEventListener("click",()=>{w=e.dataset.filter,O(t)})}),t.querySelectorAll(".th-collapse-header[data-srv]").forEach(e=>{e.addEventListener("click",()=>{const l=e.dataset.srv;T.has(l)?T.delete(l):T.add(l),O(t)})}),t.querySelectorAll(".th-i-wrap[data-tool-id]").forEach(e=>{const l=e.querySelector(".th-i");l==null||l.addEventListener("click",()=>{var x;const n=e.dataset.toolId;q===n?(q=null,e.classList.remove("expanded")):((x=t.querySelector(".th-i-wrap.expanded"))==null||x.classList.remove("expanded"),q=n,e.classList.add("expanded"))})})}let X={ok:!1,builtin:[],mcp:[]},C=[],H=new Set,g=new Set,A=!1,m=null,N=new Set,j=null;async function M(t){t.innerHTML='<div class="th-empty">加载中...</div>';try{const[e,l]=await Promise.all([y.getTools(),y.getMcpServers()]);X=e,C=l.servers,H=new Set(l.denied),g=new Set(H),B(t)}catch{t.innerHTML='<div class="th-empty">加载 MCP 数据失败</div>'}}function B(t){let e="";e+='<div class="th-mcp-body">',e+=`<div class="th-mcp-section" id="th-mcp-servers">
+    <div class="th-sec-t">已连接 <span class="th-cnt">${C.length}</span></div>
+    <div class="th-mcp-scroll">`,C.length||(e+='<div class="th-mcp-hint">暂无已连接的 MCP 服务</div>');for(const s of C){const a=m===s.serverName;e+=`<div class="th-i server-item clickable${a?" selected":""}" data-srv="${d(s.serverName)}">
       <span class="dot"></span>
-      <span class="nm">${i(o.serverName)}</span>
-      <span class="ds">${o.toolCount} 个工具 | ${i(o.transport)}</span>
-      <button class="th-btn-s th-rst th-rm-srv" data-srv="${i(o.serverName)}" style="padding:2px 6px;font-size:10px;flex-shrink:0">断开</button>
-    </div>`}e+="</div></div>";const l=I.mcp||[],r=new Map;for(const o of l){const n=o.name.match(/^mcp__([^_]+)__/),d=n?n[1]:"unknown";r.has(d)||r.set(d,[]),r.get(d).push(o)}const x=[...r.entries()].sort((o,n)=>n[1].length-o[1].length),c=!b,s=l.length;e+=`<div class="th-mcp-section flexible" id="th-mcp-tools">
+      <span class="nm">${d(s.serverName)}</span>
+      <span class="ds">${s.toolCount} 个工具 | ${d(s.transport)}</span>
+      <button class="th-btn-s th-rst th-rm-srv" data-srv="${d(s.serverName)}" style="padding:2px 6px;font-size:10px;flex-shrink:0">断开</button>
+    </div>`}e+="</div></div>";const l=X.mcp||[],n=new Map;for(const s of l){const a=s.name.match(/^mcp__([^_]+)__/),r=a?a[1]:"unknown";n.has(r)||n.set(r,[]),n.get(r).push(s)}const x=[...n.entries()].sort((s,a)=>a[1].length-s[1].length),u=!m,o=l.length,i=l.filter(s=>!g.has(s.name)).length;e+=`<div class="th-mcp-section flexible" id="th-mcp-tools">
     <div class="th-sec-t">
       MCP 工具
-      <span class="th-cnt">${s}</span>
-      ${b?`<span style="font-size:10px;color:#6b7280;font-weight:400;margin-left:4px">— ${i(b)}</span>`:'<span style="font-size:10px;color:#9ca3af;font-weight:400;margin-left:4px">全部</span>'}
+      <span class="th-cnt">${i}/${o}</span>
+      ${m?`<span style="font-size:10px;color:#6b7280;font-weight:400;margin-left:4px">— ${d(m)}</span>`:'<span style="font-size:10px;color:#9ca3af;font-weight:400;margin-left:4px">全部</span>'}
     </div>`,e+=`<div class="th-mcp-filter-bar">
-    <span class="th-mcp-filter-tag${c?" active":""}" data-filter="">全部 <span class="cnt">${s}</span></span>`;for(const o of z){const n=((a=r.get(o.serverName))==null?void 0:a.length)??0;n!==0&&(e+=`<span class="th-mcp-filter-tag${b===o.serverName?" active":""}" data-filter="${i(o.serverName)}">${i(o.serverName)} <span class="cnt">${n}</span></span>`)}e+="</div>",e+='<div class="th-mcp-scroll">',x.length||(e+='<div class="th-mcp-hint">连接 MCP 服务后，工具将显示在此处</div>');for(const[o,n]of x){const d=T.has(o);if(!(b&&b!==o)){e+=`<div class="th-collapse-group">
-      <div class="th-collapse-header${d?" collapsed":""}" data-srv="${i(o)}">
+    <span class="th-mcp-filter-tag${u?" active":""}" data-filter="">全部 <span class="cnt">${i}/${o}</span></span>`;for(const s of C){const a=n.get(s.serverName)??[],r=a.length;if(r===0)continue;const h=a.filter(f=>!g.has(f.name)).length;e+=`<span class="th-mcp-filter-tag${m===s.serverName?" active":""}" data-filter="${d(s.serverName)}">${d(s.serverName)} <span class="cnt">${h}/${r}</span></span>`}e+="</div>",e+='<div class="th-mcp-scroll">',x.length||(e+='<div class="th-mcp-hint">连接 MCP 服务后，工具将显示在此处</div>');for(const[s,a]of x){const r=N.has(s);if(m&&m!==s)continue;const f=a.filter(c=>!g.has(c.name)).length;e+=`<div class="th-collapse-group">
+      <div class="th-collapse-header${r?" collapsed":""}" data-srv="${d(s)}">
         <span class="arrow">&#9660;</span>
-        <span class="srv-name">${i(o)}</span>
-        <span class="th-cnt">${n.length}</span>
+        <span class="srv-name">${d(s)}</span>
+        <span class="th-cnt">${f}/${a.length}</span>
       </div>
-      <div class="th-collapse-body${d?" collapsed":""}" style="max-height:${d?0:n.length*36+8}px">`;for(const h of n){const u=!w.has(h.name),k=!u,C=h.name.replace(/^mcp__[^_]+__/,"");e+=`<label class="th-i${k?" disabled":""}" style="cursor:pointer">
-        <input type="checkbox" ${u?"checked":""} data-tool="${i(h.name)}" style="width:13px;height:13px;accent-color:#4f46e5;flex-shrink:0">
-        <span class="nm" title="${i(h.name)}">${i(C)}</span>
-        <span class="ds">${i((h.description||"").slice(0,28))}</span>
-      </label>`}e+="</div></div>"}}e+="</div>",l.length&&(e+=`<div class="th-ftr" style="border-top:none;padding:6px 14px">
+      <div class="th-collapse-body${r?" collapsed":""}" style="max-height:${r?0:a.length*56+8}px">`;for(const c of a){const v=!g.has(c.name),$=!v,S=c.name.replace(/^mcp__[^_]+__/,""),E=c.description||"暂无描述",p=j===c.name;e+=`<div class="th-i-wrap${p?" expanded":""}" data-tool-id="${d(c.name)}">
+        <label class="th-i${$?" disabled":""}" style="cursor:pointer" title="${d(E)}">
+          <input type="checkbox" ${v?"checked":""} data-tool="${d(c.name)}" style="width:13px;height:13px;accent-color:#4f46e5;flex-shrink:0">
+          <span class="nm" title="${d(c.name)}">${d(S)}</span>
+          <span class="ds">${d(E.slice(0,28))}${E.length>28?"...":""}</span>
+        </label>
+        <div class="th-i-detail">
+          <div class="detail-label">描述</div>
+          <div class="detail-desc">${d(E)}</div>
+          <div class="detail-label">完整名称</div>
+          <div><span class="detail-name">${d(c.name)}</span></div>
+        </div>
+      </div>`}e+="</div></div>"}e+="</div>",l.length&&(e+=`<div class="th-ftr" style="border-top:none;padding:6px 14px">
       <button class="th-btn-s th-rst" id="th-mcp-reset">全部启用</button>
       <button class="th-btn-s th-apl" id="th-mcp-apply">应用选择</button>
     </div>`),e+="</div>",e+=`<div class="th-mcp-section" id="th-mcp-add">
     <div class="th-sec-t" style="justify-content:space-between">
       添加服务
-      <button class="th-btn-s" id="th-toggle-mode" style="font-size:10px;padding:2px 8px;background:#f3f4f6;color:#374151">${_?"简单模式":"JSON 配置"}</button>
+      <button class="th-btn-s" id="th-toggle-mode" style="font-size:10px;padding:2px 8px;background:#f3f4f6;color:#374151">${A?"简单模式":"JSON 配置"}</button>
     </div>
-    <div class="th-mcp-scroll">`,_?e+=`<div style="display:flex;flex-direction:column;gap:6px;padding:4px 10px">
+    <div class="th-mcp-scroll">`,A?e+=`<div style="display:flex;flex-direction:column;gap:6px;padding:4px 10px">
       <textarea id="th-json-input" rows="12" placeholder='粘贴 JSON 配置，例如：
 {
   "mcpServers": {
@@ -493,11 +548,11 @@
       <input id="th-srv-url" placeholder="URL（如 https://mcp.example.com）" style="padding:5px 8px;border:1px solid #e5e7eb;border-radius:4px;font-size:11px">
       <input id="th-srv-headers" placeholder='Headers（可选）: {"Authorization":"Bearer ..."}' style="padding:5px 8px;border:1px solid #e5e7eb;border-radius:4px;font-size:11px">
       <button class="th-btn-s th-apl" id="th-srv-add" style="align-self:flex-end">连接</button>
-    </div>`,e+="</div></div></div>",t.innerHTML=e,W(t)}function W(t){var e,l,r,x,c;(e=t.querySelector("#th-toggle-mode"))==null||e.addEventListener("click",()=>{_=!_,A(t)}),t.querySelectorAll(".th-mcp-filter-tag[data-filter]").forEach(s=>{s.addEventListener("click",()=>{b=s.dataset.filter||null,A(t)})}),t.querySelectorAll(".th-i.server-item").forEach(s=>{s.addEventListener("click",a=>{if(a.target.closest(".th-rm-srv"))return;const n=s.dataset.srv;b=b===n?null:n,A(t)})}),t.querySelectorAll(".th-collapse-header[data-srv]").forEach(s=>{s.addEventListener("click",()=>{const a=s.dataset.srv;T.has(a)?T.delete(a):T.add(a);const o=s.nextElementSibling,n=T.has(a);s.classList.toggle("collapsed",n),o.classList.toggle("collapsed",n),o.style.maxHeight=n?"0px":`${o.querySelectorAll(".th-i").length*36+8}px`})}),t.querySelectorAll("input[data-tool]").forEach(s=>{s.addEventListener("change",()=>{s.checked?w.delete(s.dataset.tool):w.add(s.dataset.tool)})}),(l=t.querySelector("#th-mcp-reset"))==null||l.addEventListener("click",async()=>{await m.resetDeny(),w.clear(),N.clear(),M(t)}),(r=t.querySelector("#th-mcp-apply"))==null||r.addEventListener("click",async()=>{await m.denyTools([...w]),N=new Set(w),M(t)}),t.querySelectorAll(".th-rm-srv").forEach(s=>{s.addEventListener("click",async()=>{await m.removeMcpServer(s.dataset.srv),M(t)})}),(x=t.querySelector("#th-json-add"))==null||x.addEventListener("click",async()=>{const s=t.querySelector("#th-json-input"),a=t.querySelector("#th-json-error");if(!s)return;const o=s.value.trim();if(o)try{const n=JSON.parse(o),d=n.mcpServers?n:{mcpServers:n};a.style.display="none";const f=await m.addMcpBatch(d);if(!f.ok){a.textContent="连接失败",a.style.display="block";return}const h=f.results.filter(u=>!u.ok);h.length?(a.textContent=h.map(u=>`${u.serverName}: ${u.error}`).join("; "),a.style.display="block"):s.value="",setTimeout(()=>M(t),1500)}catch(n){a.textContent=`JSON 格式错误: ${n.message}`,a.style.display="block"}}),(c=t.querySelector("#th-srv-add"))==null||c.addEventListener("click",async()=>{const s=t.querySelector("#th-srv-name"),a=t.querySelector("#th-srv-transport"),o=t.querySelector("#th-srv-url"),n=t.querySelector("#th-srv-headers");if(!s||!o)return;const d=s.value.trim(),f=(a==null?void 0:a.value)||"streamable-http",h=o.value.trim();if(!d||!h)return;let u;const k=n==null?void 0:n.value.trim();if(k)try{u=JSON.parse(k)}catch{alert("Headers JSON 格式错误");return}const C=f==="stdio"?{serverName:d,transport:f,command:h}:{serverName:d,transport:f,url:h,headers:u},q=await m.addMcpServer(C);q.ok?setTimeout(()=>M(t),1500):alert(q.error||"连接失败")})}let j=[];async function F(t){t.innerHTML='<div class="th-empty">加载中...</div>';try{j=(await m.getSkills()).skills,G(t)}catch{t.innerHTML='<div class="th-empty">暂无可用技能</div>'}}function G(t){if(!j.length){t.innerHTML='<div class="th-empty">暂无可用技能</div>';return}let e=`<div class="th-sec"><div class="th-sec-t">技能列表 <span class="th-cnt">${j.length}</span></div></div>`;for(const l of j){const r=l.modelInvocable?"模型":"用户";e+=`<div class="th-i">
-      <span class="th-tg skl">${r}</span>
-      <span class="nm">${i(l.name)}</span>
-      <span class="ds">${i(l.description.slice(0,50))}</span>
-    </div>`}t.innerHTML=e}(function(){if(document.getElementById("th-root"))return;const e=document.createElement("style");e.textContent=J,document.head.appendChild(e);const l=document.createElement("div");l.id="th-root",l.innerHTML=`
+    </div>`,e+="</div></div></div>",t.innerHTML=e,U(t)}function U(t){var e,l,n,x,u;(e=t.querySelector("#th-toggle-mode"))==null||e.addEventListener("click",()=>{A=!A,B(t)}),t.querySelectorAll(".th-mcp-filter-tag[data-filter]").forEach(o=>{o.addEventListener("click",()=>{m=o.dataset.filter||null,B(t)})}),t.querySelectorAll(".th-i.server-item").forEach(o=>{o.addEventListener("click",i=>{if(i.target.closest(".th-rm-srv"))return;const a=o.dataset.srv;m=m===a?null:a,B(t)})}),t.querySelectorAll(".th-collapse-header[data-srv]").forEach(o=>{o.addEventListener("click",()=>{const i=o.dataset.srv;N.has(i)?N.delete(i):N.add(i);const s=o.nextElementSibling,a=N.has(i);o.classList.toggle("collapsed",a),s.classList.toggle("collapsed",a),s.style.maxHeight=a?"0px":`${s.querySelectorAll(".th-i-wrap").length*56+8}px`})}),t.querySelectorAll(".th-i-wrap[data-tool-id]").forEach(o=>{const i=o.querySelector(".nm");i==null||i.addEventListener("click",s=>{var r;s.preventDefault(),s.stopPropagation();const a=o.dataset.toolId;j===a?(j=null,o.classList.remove("expanded")):((r=t.querySelector(".th-i-wrap.expanded"))==null||r.classList.remove("expanded"),j=a,o.classList.add("expanded"))})}),t.querySelectorAll("input[data-tool]").forEach(o=>{o.addEventListener("change",()=>{o.checked?g.delete(o.dataset.tool):g.add(o.dataset.tool)})}),(l=t.querySelector("#th-mcp-reset"))==null||l.addEventListener("click",async()=>{await y.resetDeny(),g.clear(),H.clear(),M(t)}),(n=t.querySelector("#th-mcp-apply"))==null||n.addEventListener("click",async()=>{await y.denyTools([...g]),H=new Set(g),M(t)}),t.querySelectorAll(".th-rm-srv").forEach(o=>{o.addEventListener("click",async()=>{await y.removeMcpServer(o.dataset.srv),M(t)})}),(x=t.querySelector("#th-json-add"))==null||x.addEventListener("click",async()=>{const o=t.querySelector("#th-json-input"),i=t.querySelector("#th-json-error");if(!o)return;const s=o.value.trim();if(s)try{const a=JSON.parse(s),r=a.mcpServers?a:{mcpServers:a};i.style.display="none";const h=await y.addMcpBatch(r);if(!h.ok){i.textContent="连接失败",i.style.display="block";return}const f=h.results.filter(c=>!c.ok);f.length?(i.textContent=f.map(c=>`${c.serverName}: ${c.error}`).join("; "),i.style.display="block"):o.value="",setTimeout(()=>M(t),1500)}catch(a){i.textContent=`JSON 格式错误: ${a.message}`,i.style.display="block"}}),(u=t.querySelector("#th-srv-add"))==null||u.addEventListener("click",async()=>{const o=t.querySelector("#th-srv-name"),i=t.querySelector("#th-srv-transport"),s=t.querySelector("#th-srv-url"),a=t.querySelector("#th-srv-headers");if(!o||!s)return;const r=o.value.trim(),h=(i==null?void 0:i.value)||"streamable-http",f=s.value.trim();if(!r||!f)return;let c;const v=a==null?void 0:a.value.trim();if(v)try{c=JSON.parse(v)}catch{alert("Headers JSON 格式错误");return}const $=h==="stdio"?{serverName:r,transport:h,command:f}:{serverName:r,transport:h,url:f,headers:c},S=await y.addMcpServer($);S.ok?setTimeout(()=>M(t),1500):alert(S.error||"连接失败")})}let I=[];async function K(t){t.innerHTML='<div class="th-empty">加载中...</div>';try{I=(await y.getSkills()).skills,Q(t)}catch{t.innerHTML='<div class="th-empty">暂无可用技能</div>'}}function Q(t){if(!I.length){t.innerHTML='<div class="th-empty">暂无可用技能</div>';return}let e=`<div class="th-sec"><div class="th-sec-t">技能列表 <span class="th-cnt">${I.length}</span></div></div>`;for(const l of I){const n=l.modelInvocable?"模型":"用户";e+=`<div class="th-i">
+      <span class="th-tg skl">${n}</span>
+      <span class="nm">${d(l.name)}</span>
+      <span class="ds">${d(l.description.slice(0,50))}</span>
+    </div>`}t.innerHTML=e}(function(){if(document.getElementById("th-root"))return;const e=document.createElement("style");e.textContent=Y,document.head.appendChild(e);const l=document.createElement("div");l.id="th-root",l.innerHTML=`
     <button id="th-btn">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
@@ -515,4 +570,4 @@
       </div>
       <div class="th-body" id="th-body"></div>
     </div>
-  `,document.body.appendChild(l);let r=!1,x="tools",c=700;const s=document.getElementById("th-btn"),a=document.getElementById("th-panel"),o=document.getElementById("th-body");let n=!1,d=!1,f=0,h=0,u=0,k=0;function C(){const p=s.getBoundingClientRect();return{x:p.left,y:p.top}}s.addEventListener("pointerdown",p=>{n=!0,d=!1,f=p.clientX,h=p.clientY;const g=C();u=g.x,k=g.y,s.classList.add("dragging"),s.setPointerCapture(p.pointerId),p.preventDefault()}),document.addEventListener("pointermove",p=>{if(!n)return;const g=p.clientX-f,y=p.clientY-h;(Math.abs(g)>3||Math.abs(y)>3)&&(d=!0);const $=u+g,U=k+y,K=window.innerWidth-44,Q=window.innerHeight-44,V=Math.max(0,Math.min(K,$)),Z=Math.max(0,Math.min(Q,U));s.style.left=`${V}px`,s.style.top=`${Z}px`,s.style.right="auto",s.style.bottom="auto"}),document.addEventListener("pointerup",p=>{n&&(n=!1,s.classList.remove("dragging"),d?r&&q():(r=!r,a.classList.toggle("open",r),r&&(q(),O())))});function q(){const p=s.getBoundingClientRect(),g=420;c=700;let y=p.top-c-12,$=p.right-g;y<8&&(y=p.bottom+12),$<8&&($=8),$+g>window.innerWidth-8&&($=window.innerWidth-g-8),y+c>window.innerHeight-8&&(y=window.innerHeight-c-8),a.style.top=`${y}px`,a.style.left=`${$}px`,a.style.right="auto",a.style.bottom="auto"}document.getElementById("th-cls").addEventListener("click",()=>{r=!1,a.classList.remove("open")}),l.querySelectorAll(".th-tabs button").forEach(p=>{p.addEventListener("click",()=>{x=p.dataset.tab,l.querySelectorAll(".th-tabs button").forEach(g=>g.classList.remove("active")),p.classList.add("active"),O()})});function O(){switch(x){case"tools":R(o);break;case"mcp":M(o);break;case"skills":F(o);break}}})()})();
+  `,document.body.appendChild(l);let n=!1,x="tools",u=700;const o=document.getElementById("th-btn"),i=document.getElementById("th-panel"),s=document.getElementById("th-body");let a=!1,r=!1,h=0,f=0,c=0,v=0;function $(){const p=o.getBoundingClientRect();return{x:p.left,y:p.top}}o.addEventListener("pointerdown",p=>{a=!0,r=!1,h=p.clientX,f=p.clientY;const b=$();c=b.x,v=b.y,o.classList.add("dragging"),o.setPointerCapture(p.pointerId),p.preventDefault()}),document.addEventListener("pointermove",p=>{if(!a)return;const b=p.clientX-h,k=p.clientY-f;(Math.abs(b)>3||Math.abs(k)>3)&&(r=!0);const L=c+b,V=v+k,Z=window.innerWidth-44,tt=window.innerHeight-44,et=Math.max(0,Math.min(Z,L)),st=Math.max(0,Math.min(tt,V));o.style.left=`${et}px`,o.style.top=`${st}px`,o.style.right="auto",o.style.bottom="auto"}),document.addEventListener("pointerup",p=>{a&&(a=!1,o.classList.remove("dragging"),r?n&&S():(n=!n,i.classList.toggle("open",n),n&&(S(),E())))});function S(){const p=o.getBoundingClientRect(),b=420;u=700;let k=p.top-u-12,L=p.right-b;k<8&&(k=p.bottom+12),L<8&&(L=8),L+b>window.innerWidth-8&&(L=window.innerWidth-b-8),k+u>window.innerHeight-8&&(k=window.innerHeight-u-8),i.style.top=`${k}px`,i.style.left=`${L}px`,i.style.right="auto",i.style.bottom="auto"}document.getElementById("th-cls").addEventListener("click",()=>{n=!1,i.classList.remove("open")}),l.querySelectorAll(".th-tabs button").forEach(p=>{p.addEventListener("click",()=>{x=p.dataset.tab,l.querySelectorAll(".th-tabs button").forEach(b=>b.classList.remove("active")),p.classList.add("active"),E()})});function E(){switch(x){case"tools":D(s);break;case"mcp":M(s);break;case"skills":K(s);break}}})()})();
