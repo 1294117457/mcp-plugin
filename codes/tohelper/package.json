@@ -18,8 +18,8 @@
     "build": "npm run build:widget",
     "prepare": "npm run build",
     "dev": "vite build --watch",
-    "setup": "dsh plugin --profile default add .",
-    "unsetup": "dsh plugin --profile default remove tohelper"
+    "setup": "node scripts/setup.js",
+    "unsetup": "node scripts/unsetup.js"
   },
   "dsh": {
     "bundle": {
