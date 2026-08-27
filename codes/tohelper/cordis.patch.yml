@@ -1,4 +1,3 @@
 - insert:
     - id: tohelper
-      name: 'file:///E:/codes/claude/ID/mcp-plugin/codes/tohelper/src/index.ts'
-      # name: '/home/dustp/codes/mcp-plugin/codes/tohelper/src/index.ts'
+      name: tohelper

@@ -10,27 +10,27 @@ export const baseStyles = `
   bottom: 24px;
   right: 24px;
   z-index: 99999;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: #4f46e5;
-  color: #fff;
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: grab;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
   border: none;
-  transition: transform 0.15s, box-shadow 0.15s;
   user-select: none;
   touch-action: none;
 }
-#th-btn:hover { transform: scale(1.1); }
+#th-btn canvas {
+  border-radius: 12px;
+  pointer-events: none;
+}
+#th-btn:hover { transform: scale(1.05); }
 #th-btn:active { cursor: grabbing; }
 #th-btn.dragging {
   cursor: grabbing;
-  transform: scale(1.15);
-  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.5);
+  transform: scale(1.1);
 }
 
 #th-btn .badge {

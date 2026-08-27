@@ -1,6 +1,6 @@
 {
   "name": "tohelper",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -15,8 +15,11 @@
   ],
   "scripts": {
     "build:widget": "vite build",
-    "build": "vite build",
-    "dev": "vite build --watch"
+    "build": "npm run build:widget",
+    "prepare": "npm run build",
+    "dev": "vite build --watch",
+    "setup": "dsh plugin --profile default add .",
+    "unsetup": "dsh plugin --profile default remove tohelper"
   },
   "dsh": {
     "bundle": {

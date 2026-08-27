@@ -20,7 +20,19 @@ export interface TohelperConfig {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = resolve(__dirname, '../data')
+
+function findPackageRoot(dir: string): string {
+  let d = dir
+  for (;;) {
+    if (existsSync(resolve(d, 'package.json'))) return d
+    const parent = dirname(d)
+    if (parent === d) return dir
+    d = parent
+  }
+}
+
+const PKG_ROOT = findPackageRoot(__dirname)
+const DATA_DIR = resolve(PKG_ROOT, 'data')
 const CONFIG_PATH = resolve(DATA_DIR, 'config.json')
 
 const DEFAULT_CONFIG: TohelperConfig = {
