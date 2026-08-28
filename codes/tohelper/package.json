@@ -1,10 +1,11 @@
 {
   "name": "tohelper",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./dist/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -14,8 +15,8 @@
     "cordis.patch.yml"
   ],
   "scripts": {
-    "build:widget": "vite build",
-    "build": "npm run build:widget",
+    "build:client": "vite build",
+    "build": "npm run build:client",
     "prepare": "npm run build",
     "dev": "vite build --watch",
     "setup": "node scripts/setup.js",
@@ -24,18 +25,28 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
     }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-client-runtime": "*",
+    "@deepseek-ai/dsh-client-ui-slots": "*",
     "@deepseek-ai/dsh-host-webserver": "*",
     "@deepseek-ai/dsh-mcp-client": "*",
     "@deepseek-ai/dsh-skill": "*",
-    "@deepseek-ai/dsh-tools": "*"
+    "@deepseek-ai/dsh-tools": "*",
+    "react": "^18.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/react": "^18.2.0",
     "typescript": "^5.6.0",
     "vite": "^6.4.3"
   }

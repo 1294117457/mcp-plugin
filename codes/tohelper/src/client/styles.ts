@@ -1,69 +1,33 @@
-export const baseStyles = `
-#th-root {
+export const CSS = `
+.th-root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13px;
   color: #1f2937;
 }
 
-#th-btn {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 99999;
-  width: 80px;
-  height: 80px;
+.th-btn {
   border-radius: 12px;
-  background: transparent;
+  background: rgba(255,255,255,0.9);
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: grab;
-  border: none;
   user-select: none;
   touch-action: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  transition: transform 0.15s;
 }
-#th-btn canvas {
-  border-radius: 12px;
-  pointer-events: none;
-}
-#th-btn:hover { transform: scale(1.05); }
-#th-btn:active { cursor: grabbing; }
-#th-btn.dragging {
-  cursor: grabbing;
-  transform: scale(1.1);
-}
+.th-btn:hover { transform: scale(1.05); }
+.th-btn.open { background: rgba(79,70,229,0.1); }
 
-#th-btn .badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 9px;
-  background: #ef4444;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-}
-
-#th-panel {
-  position: fixed;
-  z-index: 99998;
-  width: 420px;
-  height: 700px;
+.th-panel {
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
-  display: none;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.12);
+  display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-#th-panel.open { display: flex; }
 
 .th-hdr {
   display: flex;
@@ -123,7 +87,6 @@ export const baseStyles = `
   font-size: 12px;
 }
 
-/* --- Common Item Styles --- */
 .th-sec { padding: 4px 14px 8px; }
 .th-sec-t {
   font-size: 11px;
@@ -170,14 +133,6 @@ export const baseStyles = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.th-i.disabled {
-  background: #fafafa;
-  opacity: 0.6;
-}
-.th-i.disabled .nm {
-  text-decoration: line-through;
-  color: #9ca3af;
-}
 
 .th-tg {
   font-size: 9px;
@@ -187,20 +142,15 @@ export const baseStyles = `
   flex-shrink: 0;
 }
 .th-tg.mcp { background: #dbeafe; color: #1d4ed8; }
-.th-tg.denied { background: #fee2e2; color: #dc2626; }
 .th-tg.skl { background: #dcfce7; color: #16a34a; }
 
-/* --- Tool detail expand --- */
-.th-i-wrap {
-  border-bottom: 1px solid transparent;
-}
+.th-i-wrap { border-bottom: 1px solid transparent; }
 .th-i-wrap.expanded {
   background: #f9fafb;
   border-bottom-color: #f3f4f6;
   border-radius: 6px;
   margin: 2px 6px;
 }
-.th-i-wrap.expanded > .th-i { background: transparent; }
 .th-i-detail {
   display: none;
   padding: 4px 14px 10px 38px;
@@ -215,13 +165,9 @@ export const baseStyles = `
   font-weight: 600;
   color: #9ca3af;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
   margin-bottom: 2px;
 }
-.th-i-detail .detail-desc {
-  color: #374151;
-  margin-bottom: 6px;
-}
+.th-i-detail .detail-desc { color: #374151; margin-bottom: 6px; }
 .th-i-detail .detail-name {
   font-family: monospace;
   font-size: 10px;
@@ -229,10 +175,8 @@ export const baseStyles = `
   background: #f3f4f6;
   padding: 2px 6px;
   border-radius: 3px;
-  display: inline-block;
 }
 
-/* --- Collapsible Group (shared) --- */
 .th-collapse-group {
   display: flex;
   flex-direction: column;
@@ -247,7 +191,6 @@ export const baseStyles = `
   cursor: pointer;
   user-select: none;
   background: #fafbfc;
-  flex-shrink: 0;
   transition: background 0.1s;
 }
 .th-collapse-header:hover { background: #f0f2f7; }
@@ -257,55 +200,158 @@ export const baseStyles = `
   width: 14px;
   text-align: center;
   transition: transform 0.2s;
-  flex-shrink: 0;
 }
 .th-collapse-header.collapsed .arrow { transform: rotate(-90deg); }
-.th-collapse-header .th-cnt {
-  font-size: 10px;
-  background: #eef2ff;
-  color: #4f46e5;
-  padding: 1px 5px;
-  border-radius: 6px;
-}
 .th-collapse-header .srv-name {
   font-size: 11px;
   font-weight: 600;
   color: #374151;
   flex: 1;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.th-collapse-body {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: max-height 0.2s ease;
-  max-height: 9999px;
-}
-.th-collapse-body.collapsed { max-height: 0; }
 
-.th-ftr {
+.th-tools-body { display: flex; flex-direction: column; height: 100%; }
+.th-tools-filter {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-top: 1px solid #f3f4f6;
-  background: #f9fafb;
+  gap: 6px;
+  padding: 10px 14px 6px;
   flex-shrink: 0;
 }
+.th-tools-filter button {
+  flex: 1;
+  padding: 6px 4px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.th-tools-filter button:hover { border-color: #c7d2fe; color: #4f46e5; }
+.th-tools-filter button.active {
+  background: #eef2ff;
+  border-color: #a5b4fc;
+  color: #4f46e5;
+}
+.th-tools-filter button .n {
+  background: rgba(79,70,229,0.1);
+  border-radius: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.th-tools-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0 8px;
+}
 
-.th-btn-s {
-  padding: 6px 12px;
+.th-mcp-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.th-mcp-section {
+  flex-shrink: 0;
+  border-bottom: 1px solid #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  max-height: 140px;
+}
+.th-mcp-section:last-child { border-bottom: none; }
+.th-mcp-tools-section {
+  flex: 1;
+  min-height: 120px;
+  max-height: none;
+}
+.th-mcp-servers-scroll, .th-mcp-tools-scroll {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 0 0 4px;
+}
+.th-mcp-actions {
+  display: flex;
+  gap: 8px;
+  padding: 6px 14px;
+  flex-shrink: 0;
+}
+.th-mcp-actions button {
+  padding: 5px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  border: none;
-  transition: opacity 0.15s;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
 }
-.th-btn-s:hover { opacity: 0.85; }
-.th-rst { color: #6b7280; background: #fff; border: 1px solid #e5e7eb; }
-.th-apl { color: #fff; background: #4f46e5; }
+.th-mcp-actions button:first-child {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
+
+.th-i.server-item { cursor: pointer; }
+.th-i.server-item.active { background: #eef2ff; }
+.th-rm-srv {
+  border: none;
+  background: none;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.th-rm-srv:hover { color: #ef4444; background: #fee2e2; }
+
+.th-toggle-mode {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #f3f4f6;
+  color: #6b7280;
+  border: none;
+}
+.th-toggle-mode:hover { background: #e5e7eb; }
+
+.th-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 14px;
+}
+.th-add-form input, .th-add-form select {
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+.th-add-form input:focus, .th-add-form select:focus { border-color: #a5b4fc; }
+.th-add-form button {
+  padding: 6px 12px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.th-add-form button:hover { opacity: 0.9; }
+.th-error {
+  font-size: 11px;
+  color: #dc2626;
+  padding: 4px 0;
+}
 `

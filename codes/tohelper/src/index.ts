@@ -1,29 +1,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { readFileSync, existsSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { loadConfig, saveConfigDebounced, configAddServer, configRemoveServer, configUpdateDenied, type TohelperConfig } from './config.js'
+import { loadConfig, configAddServer, configRemoveServer, configUpdateDenied, type TohelperConfig } from './config.js'
 
 export const name = 'tohelper'
 export const inject = ['webServer', 'tools'] as const
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
-function findPackageRoot(dir: string): string {
-  let d = dir
-  for (;;) {
-    if (existsSync(resolve(d, 'package.json'))) return d
-    const parent = dirname(d)
-    if (parent === d) return dir
-    d = parent
-  }
-}
-
-const PKG_ROOT = findPackageRoot(__dirname)
-const WIDGET_JS_PATH = resolve(PKG_ROOT, 'dist/widget.js')
-const SPINE_RT_PATH = resolve(PKG_ROOT, 'src/client/vendor/spine-webgl.js')
-const SPINE_DIR = resolve(PKG_ROOT, 'src/client/assets/spine/naiwa1')
 
 export function apply(ctx: Context): void {
   console.log('[tohelper] plugin loaded')
@@ -118,89 +98,6 @@ export function apply(ctx: Context): void {
       console.log(`[tohelper] auto-connect complete: ${mcpDisposers.size} connected`)
     }
   })()
-
-  // --- Inject spine runtime + widget script into main page ---
-  ctx.on('webserver/index-inject' as any, (table: any[]) => {
-    table.push({ kind: 'script-src', placement: 'body', src: '/api/tohelper/spine-runtime.js' })
-    table.push({ kind: 'script-src', placement: 'body', src: '/api/tohelper/widget.js' })
-  })
-
-  // --- Standalone UI page (fallback) ---
-  ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/tohelper/ui',
-    handler(_req: IncomingMessage, res: ServerResponse) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>tohelper</title></head><body><script src="/api/tohelper/widget.js"></script></body></html>`)
-    },
-  })
-
-  // --- Serve built widget bundle (live-reload from disk) ---
-  ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/tohelper/widget.js',
-    handler(_req: IncomingMessage, res: ServerResponse) {
-      try {
-        const content = readFileSync(WIDGET_JS_PATH, 'utf8')
-        res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' })
-        res.end(content)
-      } catch {
-        res.writeHead(500, { 'Content-Type': 'application/javascript' })
-        res.end(`console.error('[tohelper] dist/widget.js not found. Run: npm run dev')`)
-      }
-    },
-  })
-
-  // --- Serve spine 3.8 runtime (live-reload from disk) ---
-  ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/tohelper/spine-runtime.js',
-    handler(_req: IncomingMessage, res: ServerResponse) {
-      try {
-        const content = readFileSync(SPINE_RT_PATH, 'utf8')
-        res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' })
-        res.end(content)
-      } catch {
-        res.writeHead(500, { 'Content-Type': 'application/javascript' })
-        res.end(`console.warn('[tohelper] spine-webgl.js not found')`)
-      }
-    },
-  })
-
-  // --- Serve spine assets (live-reload from disk) ---
-  ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/tohelper/spine/skeleton.json',
-    handler(_req: IncomingMessage, res: ServerResponse) {
-      try {
-        const data = readFileSync(resolve(SPINE_DIR, 'skeleton.json'))
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' })
-        res.end(data)
-      } catch { res.writeHead(404); res.end() }
-    },
-  })
-  ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/tohelper/spine/skeleton.atlas',
-    handler(_req: IncomingMessage, res: ServerResponse) {
-      try {
-        const data = readFileSync(resolve(SPINE_DIR, 'skeleton.atlas'))
-        res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-cache' })
-        res.end(data)
-      } catch { res.writeHead(404); res.end() }
-    },
-  })
-  ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/tohelper/spine/skeleton.png',
-    handler(_req: IncomingMessage, res: ServerResponse) {
-      try {
-        const data = readFileSync(resolve(SPINE_DIR, 'skeleton.png'))
-        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' })
-        res.end(data)
-      } catch { res.writeHead(404); res.end() }
-    },
-  })
 
   // --- API: list tools ---
   ctx.webServer.register({
@@ -411,7 +308,7 @@ export function apply(ctx: Context): void {
     },
   })
 
-  console.log('[tohelper] routes registered — http://127.0.0.1:3080/api/tohelper/ui')
+  console.log('[tohelper] routes registered')
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
