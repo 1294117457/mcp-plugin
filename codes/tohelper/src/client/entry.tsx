@@ -1,4 +1,4 @@
-import { TohelperApp } from './components/App'
+import { TohelperApp } from './home/index'
 
 export const name = 'tohelper-ui'
 export const inject = ['slots']

@@ -3,6 +3,8 @@ export interface ToolItem {
   description: string
   source: 'builtin' | 'mcp'
   denied?: boolean
+  inputSchema?: Record<string, unknown> | null
+  outputSchema?: Record<string, unknown> | null
 }
 
 export interface ToolsResponse {
@@ -45,22 +47,6 @@ export interface StatusResponse {
   deniedCount: number
 }
 
-const BASE = '/api/tohelper'
-
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
-  return res.json()
-}
-
-async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  return res.json()
-}
-
 export interface McpConfigEntry {
   type?: string
   transport?: string
@@ -80,7 +66,23 @@ export interface AddBatchResult {
   results: Array<{ serverName: string; ok: boolean; error?: string }>
 }
 
-export const api = {
+const BASE = '/api/tohelper'
+
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`)
+  return res.json()
+}
+
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  return res.json()
+}
+
+export const toolApi = {
   getTools: () => get<ToolsResponse>('/tools'),
   getSkills: () => get<SkillsResponse>('/skills'),
   getMcpServers: () => get<McpServersResponse>('/mcp/servers'),

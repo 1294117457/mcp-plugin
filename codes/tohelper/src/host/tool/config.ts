@@ -13,7 +13,7 @@ export interface ServerEntry {
   autoConnect: boolean
 }
 
-export interface TohelperConfig {
+export interface ToolConfig {
   version: 1
   servers: Record<string, ServerEntry>
   denied: string[]
@@ -33,49 +33,56 @@ function findPackageRoot(dir: string): string {
 
 const PKG_ROOT = findPackageRoot(__dirname)
 const DATA_DIR = resolve(PKG_ROOT, 'data')
-const CONFIG_PATH = resolve(DATA_DIR, 'config.json')
+const CONFIG_PATH = resolve(DATA_DIR, 'tool-config.json')
+const LEGACY_CONFIG_PATH = resolve(DATA_DIR, 'config.json')
 
-const DEFAULT_CONFIG: TohelperConfig = {
+const DEFAULT_CONFIG: ToolConfig = {
   version: 1,
   servers: {},
   denied: [],
 }
 
-export function loadConfig(): TohelperConfig {
+export function loadToolConfig(): ToolConfig {
   try {
     const raw = readFileSync(CONFIG_PATH, 'utf8')
     const parsed = JSON.parse(raw)
     if (parsed.version === 1) return parsed
-    console.warn('[tohelper] config version mismatch, using defaults')
     return { ...DEFAULT_CONFIG }
   } catch {
+    // Try legacy path
+    try {
+      const raw = readFileSync(LEGACY_CONFIG_PATH, 'utf8')
+      const parsed = JSON.parse(raw)
+      if (parsed.version === 1) {
+        saveToolConfig(parsed)
+        return parsed
+      }
+    } catch { /* empty */ }
     return { ...DEFAULT_CONFIG }
   }
 }
 
-export function saveConfig(config: TohelperConfig): void {
+export function saveToolConfig(config: ToolConfig): void {
   const tmp = CONFIG_PATH + '.tmp'
-
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true })
   }
-
   writeFileSync(tmp, JSON.stringify(config, null, 2), 'utf8')
   renameSync(tmp, CONFIG_PATH)
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-export function saveConfigDebounced(config: TohelperConfig): void {
+export function saveToolConfigDebounced(config: ToolConfig): void {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
-    saveConfig(config)
+    saveToolConfig(config)
     debounceTimer = null
   }, 100)
 }
 
 export function configAddServer(
-  config: TohelperConfig,
+  config: ToolConfig,
   serverName: string,
   entry: Omit<ServerEntry, 'addedAt' | 'autoConnect'>,
 ): void {
@@ -84,16 +91,18 @@ export function configAddServer(
     addedAt: new Date().toISOString(),
     autoConnect: true,
   }
-  saveConfigDebounced(config)
+  saveToolConfigDebounced(config)
 }
 
-export function configRemoveServer(config: TohelperConfig, serverName: string): void {
+export function configRemoveServer(config: ToolConfig, serverName: string): void {
   delete config.servers[serverName]
   config.denied = config.denied.filter(n => !n.startsWith(`mcp__${serverName}__`))
-  saveConfigDebounced(config)
+  saveToolConfigDebounced(config)
 }
 
-export function configUpdateDenied(config: TohelperConfig, denied: string[]): void {
+export function configUpdateDenied(config: ToolConfig, denied: string[]): void {
   config.denied = denied
-  saveConfigDebounced(config)
+  saveToolConfigDebounced(config)
 }
+
+export { DATA_DIR, PKG_ROOT }

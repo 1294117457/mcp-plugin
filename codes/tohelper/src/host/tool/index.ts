@@ -1,49 +1,22 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { loadConfig, configAddServer, configRemoveServer, configUpdateDenied, type TohelperConfig } from './config.js'
+import type { AgentTracker } from '../agent-tracker.js'
+import { readBody, json } from '../util.js'
+import {
+  loadToolConfig, configAddServer, configRemoveServer, configUpdateDenied,
+  type ToolConfig,
+} from './config.js'
 
-export const name = 'tohelper'
-export const inject = ['webServer', 'tools'] as const
+export function setupToolModule(ctx: Context, tracker: AgentTracker): void {
+  const config: ToolConfig = loadToolConfig()
+  console.log(`[tohelper] tool config loaded: ${Object.keys(config.servers).length} servers, ${config.denied.length} denied tools`)
 
-export function apply(ctx: Context): void {
-  console.log('[tohelper] plugin loaded')
-
-  // --- Load persisted config ---
-  const config: TohelperConfig = loadConfig()
-  console.log(`[tohelper] config loaded: ${Object.keys(config.servers).length} servers, ${config.denied.length} denied tools`)
-
-  // --- Track agent ---
-  let currentAgent: any
-  try {
-    ctx.on('agent/created' as any, ({ agent }: any) => {
-      currentAgent = agent
-      console.log('[tohelper] agent created:', agent.id)
-      // Re-apply restrictions when a new agent is created
-      if (deniedTools.size > 0) applyRestriction()
-    })
-    ctx.on('agent/disposed' as any, ({ agent }: any) => {
-      if (currentAgent === agent) currentAgent = undefined
-    })
-  } catch (e) {
-    console.log('[tohelper] agent tracking skipped:', e)
-  }
-
-  function getAgent(): any {
-    if (currentAgent) return currentAgent
-    try {
-      const agents = (ctx as any).agents
-      if (agents && typeof agents.list === 'function') return agents.list()[0]
-    } catch { /* empty */ }
-    return undefined
-  }
-
-  // --- State (initialized from persisted config) ---
   const deniedTools = new Set<string>(config.denied)
   let restrictDisposer: (() => void) | null = null
 
   function applyRestriction(): void {
     if (restrictDisposer) { restrictDisposer(); restrictDisposer = null }
-    const agent = getAgent()
+    const agent = tracker.getAgent()
     if (!agent || deniedTools.size === 0) return
     try {
       const schemas = ctx.tools.schemas(agent)
@@ -53,6 +26,13 @@ export function apply(ctx: Context): void {
       console.warn('[tohelper] restrict failed:', e)
     }
   }
+
+  // Re-apply when agent changes
+  try {
+    ctx.on('agent/created' as any, () => {
+      if (deniedTools.size > 0) applyRestriction()
+    })
+  } catch { /* empty */ }
 
   // --- MCP server management ---
   const mcpDisposers = new Map<string, { dispose: () => void; transport: string }>()
@@ -67,15 +47,60 @@ export function apply(ctx: Context): void {
     serverName: string,
     transport: 'stdio' | 'streamable-http',
     opts: { command?: string; args?: string[]; url?: string; headers?: Record<string, string>; env?: Record<string, string> },
-  ): Promise<void> {
+  ): Promise<number> {
     const mcpClient = await import('@deepseek-ai/dsh-mcp-client')
-    const config = transport === 'stdio'
+    const mcpConfig = transport === 'stdio'
       ? { transport: 'stdio' as const, serverName, command: opts.command ?? '', args: opts.args ?? [], env: opts.env ?? {}, cwd: process.cwd(), toolCallTimeoutMs: 60000, failOnStartupError: false }
       : { transport: 'streamable-http' as const, serverName, url: opts.url ?? '', headers: opts.headers ?? {}, toolCallTimeoutMs: 60000, failOnStartupError: false }
 
-    const fiber = ctx.plugin(mcpClient, config)
+    const fiber = ctx.plugin(mcpClient, mcpConfig)
     mcpDisposers.set(serverName, { dispose: () => (fiber as any).dispose(), transport })
     console.log(`[tohelper] MCP server "${serverName}" connected (${transport})`)
+
+    // Wait for tools to appear using the tools/change event + polling fallback
+    const prefix = `mcp__${serverName}__`
+
+    function countTools(): number {
+      try {
+        const agent = tracker.getAgent()
+        const schemas = agent ? ctx.tools.schemas(agent) : ctx.tools.schemas()
+        return schemas.filter((s: any) => ((s as any).name ?? '').startsWith(prefix)).length
+      } catch {
+        try { return ctx.tools.schemas().filter((s: any) => ((s as any).name ?? '').startsWith(prefix)).length }
+        catch { return 0 }
+      }
+    }
+
+    const toolCount = await new Promise<number>(resolve => {
+      const timeout = setTimeout(() => { cleanup(); resolve(countTools()) }, 10000)
+      let changeDisposer: (() => void) | undefined
+      let pollTimer: ReturnType<typeof setInterval> | undefined
+
+      function cleanup() {
+        clearTimeout(timeout)
+        if (pollTimer) clearInterval(pollTimer)
+        if (changeDisposer) changeDisposer()
+      }
+
+      function check() {
+        const n = countTools()
+        if (n > 0) { cleanup(); resolve(n) }
+      }
+
+      // Listen for tools/change events
+      try {
+        changeDisposer = ctx.on('tools/change' as any, check)
+      } catch { /* empty */ }
+
+      // Also poll every 500ms as fallback
+      pollTimer = setInterval(check, 500)
+
+      // Initial check after a short delay
+      setTimeout(check, 800)
+    })
+
+    console.log(`[tohelper] MCP "${serverName}" tool discovery: ${toolCount} tools found`)
+    return toolCount
   }
 
   // --- Auto-connect persisted servers ---
@@ -84,11 +109,7 @@ export function apply(ctx: Context): void {
       if (!entry.autoConnect) continue
       try {
         await connectMcpServer(serverName, entry.transport, {
-          command: entry.command,
-          args: entry.args,
-          url: entry.url,
-          headers: entry.headers,
-          env: entry.env,
+          command: entry.command, args: entry.args, url: entry.url, headers: entry.headers, env: entry.env,
         })
       } catch (e) {
         console.warn(`[tohelper] auto-connect failed: ${serverName}`, e)
@@ -99,28 +120,45 @@ export function apply(ctx: Context): void {
     }
   })()
 
-  // --- API: list tools ---
+  // --- API routes ---
   ctx.webServer.register({
     kind: 'exact',
     path: '/api/tohelper/tools',
     handler(_req: IncomingMessage, res: ServerResponse) {
       try {
-        const agent = getAgent()
+        const agent = tracker.getAgent()
         const schemas = agent ? ctx.tools.schemas(agent) : ctx.tools.schemas()
         const builtin: any[] = []
         const mcp: any[] = []
+        let logged = false
         for (const s of schemas) {
           const nm = (s as any).name ?? ''
           const ds = (s as any).description ?? ''
+          const params = (s as any).parameters ?? (s as any).inputSchema ?? (s as any).input_schema ?? null
+          let outputSchema: any = null
+          try {
+            const def = agent ? ctx.tools.get(nm, agent) : ctx.tools.get(nm)
+            if (def?.output?.schema) outputSchema = def.output.schema
+          } catch { /* empty */ }
+          if (!outputSchema) {
+            try { outputSchema = (s as any).output?.schema ?? (s as any).outputSchema ?? null }
+            catch { /* empty */ }
+          }
+          // Debug: log first MCP tool's schema keys
+          if (!logged && nm.startsWith('mcp__')) {
+            console.log(`[tohelper] schema keys for "${nm}":`, Object.keys(s))
+            console.log(`[tohelper] parameters type:`, typeof params, params ? 'has value' : 'null')
+            logged = true
+          }
           if (nm.startsWith('mcp__')) {
-            mcp.push({ name: nm, description: ds, source: 'mcp', denied: deniedTools.has(nm) })
+            mcp.push({ name: nm, description: ds, source: 'mcp', denied: deniedTools.has(nm), inputSchema: params, outputSchema })
           } else {
-            builtin.push({ name: nm, description: ds, source: 'builtin' })
+            builtin.push({ name: nm, description: ds, source: 'builtin', inputSchema: params, outputSchema })
           }
         }
         for (const d of deniedTools) {
           if (!mcp.some(t => t.name === d)) {
-            mcp.push({ name: d, description: '(denied)', source: 'mcp', denied: true })
+            mcp.push({ name: d, description: '(denied)', source: 'mcp', denied: true, inputSchema: null, outputSchema: null })
           }
         }
         json(res, { ok: true, agentId: agent?.id, builtin, mcp })
@@ -130,13 +168,12 @@ export function apply(ctx: Context): void {
     },
   })
 
-  // --- API: list skills ---
   ctx.webServer.register({
     kind: 'exact',
     path: '/api/tohelper/skills',
     async handler(_req: IncomingMessage, res: ServerResponse) {
       try {
-        const agent = getAgent()
+        const agent = tracker.getAgent()
         const skills = (ctx as any).skills
         if (!skills || !agent) { json(res, { ok: true, skills: [] }); return }
         const list = await skills.list({ scope: agent, cwd: agent.session?.header?.cwd })
@@ -155,12 +192,11 @@ export function apply(ctx: Context): void {
     },
   })
 
-  // --- API: MCP servers ---
   ctx.webServer.register({
     kind: 'exact',
     path: '/api/tohelper/mcp/servers',
     handler(_req: IncomingMessage, res: ServerResponse) {
-      const agent = getAgent()
+      const agent = tracker.getAgent()
       const schemas = agent ? ctx.tools.schemas(agent) : ctx.tools.schemas()
       const servers = [...mcpDisposers.entries()].map(([sn, entry]) => ({
         serverName: sn,
@@ -183,15 +219,9 @@ export function apply(ctx: Context): void {
         if (mcpDisposers.has(serverName)) { json(res, { ok: false, error: 'already exists' }, 400); return }
 
         const normalizedTransport = normalizeTransport(transport)
-        await connectMcpServer(serverName, normalizedTransport, { command, args, url, headers })
-
-        // Persist
-        configAddServer(config, serverName, {
-          transport: normalizedTransport,
-          url, headers, command, args,
-        })
-
-        json(res, { ok: true, serverName })
+        const toolCount = await connectMcpServer(serverName, normalizedTransport, { command, args, url, headers })
+        configAddServer(config, serverName, { transport: normalizedTransport, url, headers, command, args })
+        json(res, { ok: true, serverName, toolCount })
       } catch (e: any) {
         json(res, { ok: false, error: String(e?.message ?? e) }, 400)
       }
@@ -205,7 +235,7 @@ export function apply(ctx: Context): void {
       try {
         const body = JSON.parse(await readBody(req))
         const mcpServers: Record<string, any> = body.mcpServers ?? body
-        const results: Array<{ serverName: string; ok: boolean; error?: string }> = []
+        const results: Array<{ serverName: string; ok: boolean; toolCount?: number; error?: string }> = []
 
         for (const [serverName, entry] of Object.entries(mcpServers)) {
           if (mcpDisposers.has(serverName)) {
@@ -214,24 +244,14 @@ export function apply(ctx: Context): void {
           }
           try {
             const transport = normalizeTransport(entry.type || entry.transport || 'streamable-http')
-            const opts = {
-              command: entry.command,
-              args: entry.args,
-              url: entry.url,
-              headers: entry.headers,
-              env: entry.env,
-            }
-            await connectMcpServer(serverName, transport, opts)
-
-            // Persist
+            const opts = { command: entry.command, args: entry.args, url: entry.url, headers: entry.headers, env: entry.env }
+            const toolCount = await connectMcpServer(serverName, transport, opts)
             configAddServer(config, serverName, { transport, ...opts })
-
-            results.push({ serverName, ok: true })
+            results.push({ serverName, ok: true, toolCount })
           } catch (e: any) {
             results.push({ serverName, ok: false, error: String(e?.message ?? e) })
           }
         }
-
         json(res, { ok: true, results })
       } catch (e: any) {
         json(res, { ok: false, results: [], error: String(e?.message ?? e) }, 400)
@@ -253,10 +273,7 @@ export function apply(ctx: Context): void {
           if (n.startsWith(`mcp__${serverName}__`)) deniedTools.delete(n)
         }
         applyRestriction()
-
-        // Persist
         configRemoveServer(config, serverName)
-
         json(res, { ok: true })
       } catch (e: any) {
         json(res, { ok: false, error: String(e?.message ?? e) }, 400)
@@ -273,10 +290,7 @@ export function apply(ctx: Context): void {
         deniedTools.clear()
         for (const n of (names ?? [])) deniedTools.add(n)
         applyRestriction()
-
-        // Persist
         configUpdateDenied(config, [...deniedTools])
-
         json(res, { ok: true, denied: [...deniedTools] })
       } catch (e: any) {
         json(res, { ok: false, error: String(e?.message ?? e) }, 400)
@@ -290,10 +304,7 @@ export function apply(ctx: Context): void {
     handler(_req: IncomingMessage, res: ServerResponse) {
       deniedTools.clear()
       if (restrictDisposer) { restrictDisposer(); restrictDisposer = null }
-
-      // Persist
       configUpdateDenied(config, [])
-
       json(res, { ok: true, denied: [] })
     },
   })
@@ -302,25 +313,9 @@ export function apply(ctx: Context): void {
     kind: 'exact',
     path: '/api/tohelper/status',
     handler(_req: IncomingMessage, res: ServerResponse) {
-      const agent = getAgent()
+      const agent = tracker.getAgent()
       const schemas = agent ? ctx.tools.schemas(agent) : ctx.tools.schemas()
       json(res, { ok: true, hasAgent: !!agent, agentId: agent?.id, toolCount: schemas.length, deniedCount: deniedTools.size })
     },
   })
-
-  console.log('[tohelper] routes registered')
-}
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', reject)
-  })
-}
-
-function json(res: ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(data))
 }

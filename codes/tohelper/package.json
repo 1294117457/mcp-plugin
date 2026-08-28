@@ -2,9 +2,9 @@
   "name": "tohelper",
   "version": "0.5.0",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "src/host/index.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": "./src/host/index.ts",
     "./client": "./dist/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
@@ -39,6 +39,7 @@
     "@deepseek-ai/dsh-client-runtime": "*",
     "@deepseek-ai/dsh-client-ui-slots": "*",
     "@deepseek-ai/dsh-host-webserver": "*",
+    "@deepseek-ai/dsh-llm": "*",
     "@deepseek-ai/dsh-mcp-client": "*",
     "@deepseek-ai/dsh-skill": "*",
     "@deepseek-ai/dsh-tools": "*",

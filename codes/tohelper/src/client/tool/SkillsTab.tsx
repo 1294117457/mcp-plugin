@@ -1,6 +1,6 @@
-import type { AppData } from './App'
+import type { ToolPanelData } from './ToolPanel'
 
-export function SkillsTab({ data }: { data: AppData }) {
+export function SkillsTab({ data }: { data: ToolPanelData }) {
   if (data.loading) return <div className="th-empty">加载中...</div>
   if (!data.skills.length) return <div className="th-empty">暂无可用技能</div>
 

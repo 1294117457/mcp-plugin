@@ -8,6 +8,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/index.ts", "src/config.ts"],
+  "include": ["src/host/**/*", "src/types.ts"],
   "exclude": ["node_modules", "src/client"]
 }
