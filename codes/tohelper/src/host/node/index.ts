@@ -47,7 +47,7 @@ export function setupNodeModule(ctx: Context, tracker: AgentTracker): void {
           render: (_args: unknown, value: any) => [{ type: 'text', text: value?.result ?? String(value ?? '') }],
         },
         async execute(args: unknown) {
-          return executor.run(node, args)
+          return executor.run(node, args, agent)
         },
       }
 

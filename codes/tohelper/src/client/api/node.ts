@@ -1,4 +1,4 @@
-import type { NodeConfig } from '../../types'
+import type { NodeConfig, TaskConfig } from '../../types'
 
 export interface NodeListResponse {
   ok: boolean
@@ -9,14 +9,27 @@ export interface NodeListResponse {
 export interface CreateNodePayload {
   name: string
   description: string
-  systemPrompt: string
+  executionMode: 'direct' | 'pipeline' | 'subagent'
+  
+  // direct 模式字段
+  systemPrompt?: string
   llm?: { provider: string; model: string; temperature?: number; maxTokens?: number }
+  
+  // pipeline 模式字段
+  tasks?: TaskConfig[]
+  
+  // 通用字段
   tools?: string[]
   inputSchema?: Record<string, unknown>
   outputSchema?: Record<string, unknown>
 }
 
 export type UpdateNodePayload = CreateNodePayload & { id: string }
+
+export interface TaskTypesResponse {
+  ok: boolean
+  types: string[]
+}
 
 const BASE = '/api/tohelper/node'
 
@@ -41,4 +54,11 @@ export const nodeApi = {
   delete: (id: string) => post<{ ok: boolean; error?: string }>('/delete', { id }),
   equip: (id: string) => post<{ ok: boolean; toolName?: string; error?: string }>('/equip', { id }),
   unequip: (id: string) => post<{ ok: boolean; error?: string }>('/unequip', { id }),
+}
+
+export const taskApi = {
+  getTypes: async (): Promise<TaskTypesResponse> => {
+    const res = await fetch('/api/tohelper/task/types')
+    return res.json()
+  }
 }

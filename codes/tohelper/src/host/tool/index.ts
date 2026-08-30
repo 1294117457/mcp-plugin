@@ -318,4 +318,155 @@ export function setupToolModule(ctx: Context, tracker: AgentTracker): void {
       json(res, { ok: true, hasAgent: !!agent, agentId: agent?.id, toolCount: schemas.length, deniedCount: deniedTools.size })
     },
   })
+
+  // --- LLM 配置查询 ---
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/tohelper/llm/list',
+    async handler(_req: IncomingMessage, res: ServerResponse) {
+      try {
+        const agent = tracker.getAgent()
+        const llms: Array<{ provider: string; model: string; displayName: string }> = []
+        
+        // 方式 1: 从 ctx.llm 服务获取已注册的 providers
+        try {
+          const llmService = ctx.llm
+          if (llmService) {
+            // 获取所有已注册的 providers
+            const providers = llmService.listProviders()
+            ctx.logger.info(`[tohelper] 找到 ${providers.length} 个已注册的 LLM providers`)
+            
+            for (const providerInfo of providers) {
+              const provider = providerInfo.id
+              
+              // 尝试从对应的 adapter 获取模型列表
+              try {
+                const registration = (llmService as any).adapters?.get(provider)
+                if (registration?.adapter) {
+                  const models = await registration.adapter.listModels(provider)
+                  ctx.logger.info(`[tohelper] Provider ${provider} 有 ${models.length} 个模型`)
+                  
+                  for (const modelInfo of models) {
+                    const displayName = `${provider}/${modelInfo.id}`
+                    if (!llms.find(l => l.displayName === displayName)) {
+                      llms.push({
+                        provider,
+                        model: modelInfo.id,
+                        displayName
+                      })
+                    }
+                  }
+                }
+              } catch (err) {
+                ctx.logger.warn(`[tohelper] 无法从 provider ${provider} 获取模型列表:`, err)
+              }
+            }
+          }
+        } catch (err) {
+          ctx.logger.warn('[tohelper] 从 llm 服务获取 providers 失败:', err)
+        }
+        
+        // 方式 2: 从 ctx.agentDefaultModel 获取当前选中的模型
+        try {
+          const defaultModel = ctx.agentDefaultModel
+          if (defaultModel) {
+            const sel = defaultModel.currentSelection()
+            if (sel) {
+              const key = `${sel.provider}/${sel.model}`
+              ctx.logger.info(`[tohelper] 默认模型: ${key}`)
+              if (!llms.find(l => l.displayName === key)) {
+                llms.unshift({
+                  provider: sel.provider,
+                  model: sel.model,
+                  displayName: key
+                })
+              }
+            }
+          }
+        } catch (err) {
+          ctx.logger.warn('[tohelper] 从 agentDefaultModel 获取默认模型失败:', err)
+        }
+        
+        // 方式 3: 从 Agent 配置获取
+        try {
+          if (agent) {
+            const agentConfig = (agent as any).config
+            if (agentConfig?.llm) {
+              const configLlm = agentConfig.llm
+              const key = typeof configLlm === 'string' ? configLlm : `${configLlm.provider}/${configLlm.model}`
+              ctx.logger.info(`[tohelper] Agent 配置的模型: ${key}`)
+              if (!llms.find(l => l.displayName === key)) {
+                const [provider, model] = key.split('/')
+                llms.unshift({
+                  provider: provider || 'deepseek-official',
+                  model: model || 'deepseek-chat',
+                  displayName: key
+                })
+              }
+            }
+          }
+        } catch (err) {
+          ctx.logger.warn('[tohelper] 从 Agent 配置获取模型失败:', err)
+        }
+        
+        // 方式 4: 从历史配置文件获取
+        try {
+          const configPath = '/home/dustp/codes/mcp-plugin/codes/tohelper/data/node-config.json'
+          const fs = await import('fs/promises')
+          const configContent = await fs.readFile(configPath, 'utf-8')
+          const nodeConfig = JSON.parse(configContent)
+          
+          if (nodeConfig.nodes) {
+            for (const node of Object.values(nodeConfig.nodes) as any[]) {
+              if (node.llm) {
+                const key = `${node.llm.provider}/${node.llm.model}`
+                if (!llms.find(l => l.displayName === key)) {
+                  llms.push({
+                    provider: node.llm.provider,
+                    model: node.llm.model,
+                    displayName: key
+                  })
+                }
+              }
+            }
+          }
+        } catch (err) {
+          ctx.logger.warn('[tohelper] 从历史配置获取模型失败:', err)
+        }
+        
+        // 如果仍然没有任何模型，使用默认列表
+        if (llms.length === 0) {
+          ctx.logger.warn('[tohelper] 未找到任何 LLM 配置，使用默认列表')
+          llms.push(
+            { provider: 'deepseek-official', model: 'deepseek-chat', displayName: 'deepseek-official/deepseek-chat' },
+            { provider: 'deepseek-official', model: 'deepseek-coder', displayName: 'deepseek-official/deepseek-coder' },
+            { provider: 'deepseek-official', model: 'deepseek-reasoner', displayName: 'deepseek-official/deepseek-reasoner' }
+          )
+        }
+        
+        // 去重
+        const uniqueLLMs = llms.reduce((acc, curr) => {
+          if (!acc.find(l => l.displayName === curr.displayName)) {
+            acc.push(curr)
+          }
+          return acc
+        }, [] as typeof llms)
+        
+        // 排序：用户配置的模型优先
+        uniqueLLMs.sort((a, b) => {
+          const aIsDefault = a.provider === 'deepseek-official' && ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner'].includes(a.model)
+          const bIsDefault = b.provider === 'deepseek-official' && ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner'].includes(b.model)
+          if (aIsDefault && !bIsDefault) return 1
+          if (!aIsDefault && bIsDefault) return -1
+          return 0
+        })
+        
+        ctx.logger.info(`[tohelper] 最终返回 ${uniqueLLMs.length} 个 LLM 配置`)
+        json(res, { ok: true, llms: uniqueLLMs, agentId: agent?.id })
+      } catch (e: any) {
+        ctx.logger.error('[tohelper] LLM 列表查询失败:', e)
+        json(res, { ok: false, llms: [], error: String(e?.message ?? e) }, 500)
+      }
+    },
+  })
 }

@@ -64,7 +64,25 @@ export function validateNodeConfig(data: any): { error?: string; node?: Omit<Nod
   if (!data.description || typeof data.description !== 'string') return { error: 'description is required' }
   if (data.description.length > 200) return { error: 'description must be ≤ 200 chars' }
 
-  if (!data.systemPrompt || typeof data.systemPrompt !== 'string') return { error: 'systemPrompt is required' }
+  // 执行模式验证（默认 direct）
+  const executionMode = data.executionMode || 'direct'
+  if (!['direct', 'pipeline', 'subagent'].includes(executionMode)) {
+    return { error: 'executionMode must be one of: direct, pipeline, subagent' }
+  }
+
+  // Direct 模式验证
+  if (executionMode === 'direct') {
+    if (!data.systemPrompt || typeof data.systemPrompt !== 'string') {
+      return { error: 'systemPrompt is required for direct mode' }
+    }
+  }
+
+  // Pipeline 模式验证
+  if (executionMode === 'pipeline') {
+    if (!data.tasks || !Array.isArray(data.tasks) || data.tasks.length === 0) {
+      return { error: 'tasks array is required for pipeline mode' }
+    }
+  }
 
   const DEFAULT_INPUT_SCHEMA = {
     type: 'object' as const,
@@ -91,9 +109,19 @@ export function validateNodeConfig(data: any): { error?: string; node?: Omit<Nod
   const node: Omit<NodeConfig, 'id' | 'createdAt'> = {
     name: data.name,
     description: data.description,
-    systemPrompt: data.systemPrompt,
+    executionMode,
     inputSchema: data.inputSchema || DEFAULT_INPUT_SCHEMA,
     outputSchema: data.outputSchema || DEFAULT_OUTPUT_SCHEMA,
+  }
+
+  // Direct 模式字段
+  if (executionMode === 'direct') {
+    node.systemPrompt = data.systemPrompt
+  }
+
+  // Pipeline 模式字段
+  if (executionMode === 'pipeline' && data.tasks) {
+    node.tasks = data.tasks
   }
 
   if (data.llm) {

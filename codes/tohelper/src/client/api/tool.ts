@@ -47,6 +47,19 @@ export interface StatusResponse {
   deniedCount: number
 }
 
+export interface LLMOption {
+  provider: string
+  model: string
+  displayName: string
+}
+
+export interface LLMListResponse {
+  ok: boolean
+  llms: LLMOption[]
+  agentId?: string
+  error?: string
+}
+
 export interface McpConfigEntry {
   type?: string
   transport?: string
@@ -94,4 +107,5 @@ export const toolApi = {
   denyTools: (names: string[]) => post<{ ok: boolean; denied: string[] }>('/mcp/deny', { names }),
   resetDeny: () => post<{ ok: boolean }>('/mcp/reset'),
   getStatus: () => get<StatusResponse>('/status'),
+  getLLMs: () => get<LLMListResponse>('/llm/list'),
 }

@@ -139,4 +139,15 @@ export function registerNodeRoutes(ctx: Context, nodeModule: NodeModule, _tracke
       }
     },
   })
+
+  // Task API
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/tohelper/task/types',
+    handler(_req: IncomingMessage, res: ServerResponse) {
+      const { taskRegistry } = require('../task/index.js')
+      const types = taskRegistry.listTypes()
+      json(res, { ok: true, types })
+    },
+  })
 }
