@@ -33,8 +33,8 @@ export function NodeEditor({ initial, availableTools, availableLLMs, onSave, onC
   useEffect(() => {
     if (initial) {
       setName(initial.name)
-      setDescription(initial.description)
-      setExecutionMode(initial.executionMode === 'pipeline' ? 'pipeline' : 'direct')
+      setDescription(initial.description || '')
+      setExecutionMode((initial.executionMode || initial.mode) === 'pipeline' ? 'pipeline' : 'direct')
       
       if (initial.executionMode === 'direct' || !initial.executionMode) {
         setSystemPrompt(initial.systemPrompt || '')
@@ -121,6 +121,9 @@ export function NodeEditor({ initial, availableTools, availableLLMs, onSave, onC
     const newTask: TaskConfig = {
       id: `task-${Date.now()}`,
       name: `Task ${tasks.length + 1}`,
+      taskPrompt: '',
+      tools: [],
+      outputFormat: 'text',
       type: 'llm-call',
       config: {
         systemPrompt: '',

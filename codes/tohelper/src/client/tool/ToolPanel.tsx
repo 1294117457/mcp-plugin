@@ -53,7 +53,7 @@ export function ToolPanel({ btnPos, onClose }: Props) {
         setDenied(new Set(m.denied))
         setNodes(n.nodes.map((nd: NodeConfig) => ({
           name: nd.name,
-          description: nd.description,
+          description: nd.description || '',
           nodeId: nd.id,
           equipped: n.equipped.includes(nd.id),
         })))

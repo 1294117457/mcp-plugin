@@ -10,22 +10,23 @@ export interface NodeExecutor {
 export function createNodeExecutor(ctx: Context): NodeExecutor {
   return {
     async run(node, args, agent) {
+      const executionMode = node.mode || (node as any).executionMode
       // ===== 1. direct 模式：单次 LLM 调用 =====
-      if (node.executionMode === 'direct' || !node.executionMode) {
+      if (executionMode === 'direct' || !executionMode) {
         return runDirectMode(ctx, node, args, agent)
       }
       
       // ===== 2. pipeline 模式：Task 编排 =====
-      if (node.executionMode === 'pipeline') {
+      if (executionMode === 'pipeline') {
         return runPipelineMode(ctx, node, args, agent)
       }
       
       // ===== 3. subagent 模式：未来扩展 =====
-      if (node.executionMode === 'subagent') {
-        return { result: '[Error] subagent mode not implemented yet' }
+      if (executionMode === 'subagent') {
+        return { result: '[Error] loop/subagent mode requires the V2 executor' }
       }
       
-      return { result: `[Error] Unknown execution mode: ${node.executionMode}` }
+      return { result: `[Error] Unknown execution mode: ${executionMode}` }
     }
   }
 }
@@ -62,7 +63,7 @@ async function runDirectMode(
     const stream = prepared.stream({
       provider: llmConfig.provider,
       model: llmConfig.model,
-      system: node.systemPrompt || '',
+      system: node.nodePrompt || (node as any).systemPrompt || '',
       messages: [{ role: 'user', content: [{ type: 'text', text: userContent }] }],
       temperature: llmConfig.temperature,
       maxTokens: llmConfig.maxTokens,

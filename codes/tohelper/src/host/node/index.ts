@@ -40,7 +40,7 @@ export function setupNodeModule(ctx: Context, tracker: AgentTracker): void {
     try {
       const toolDef = {
         name: node.name,
-        description: node.description,
+        description: node.description || '',
         parameters: node.inputSchema,
         output: {
           schema: node.outputSchema,
@@ -91,7 +91,7 @@ export function setupNodeModule(ctx: Context, tracker: AgentTracker): void {
   function getNodeToolsList(): Array<{ name: string; description: string; nodeId: string; equipped: boolean }> {
     return Object.values(config.nodes).map(node => ({
       name: node.name,
-      description: node.description,
+      description: node.description || '',
       nodeId: node.id,
       equipped: equippedDisposers.has(node.id),
     }))

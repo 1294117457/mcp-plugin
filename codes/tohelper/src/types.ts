@@ -21,6 +21,10 @@ export interface TaskConfig {
   taskPrompt: string              // Task 的任务提示词（替代 systemPrompt）
   tools: string[]                 // Task 可用的工具列表（支持多个）
   
+  // 兼容旧版执行器和配置文件
+  type?: 'llm-call' | 'tool-call' | 'transform' | 'conditional'
+  config?: TaskTypeConfig
+
   // 可选配置
   llm?: LLMSlot                   // 独立 LLM 配置（可选，继承 Node 配置）
   outputFormat?: 'text' | 'json'  // 输出格式
@@ -114,6 +118,34 @@ export type ExecutionMode = 'direct' | 'pipeline' | 'loop'
  * Node 配置定义（新架构）
  * 设计理念：Node = LLM + Tasks + Mode + NodePrompt
  */
+export interface CanvasPoint {
+  x: number
+  y: number
+}
+
+export interface CanvasSize {
+  width: number
+  height: number
+}
+
+export interface CanvasItemLayout {
+  position: CanvasPoint
+  size: CanvasSize
+  collapsed?: boolean
+  zIndex?: number
+}
+
+export interface NodeCanvasLayout {
+  version: 1
+  viewport?: {
+    x: number
+    y: number
+    zoom: number
+  }
+  nodes: Record<string, CanvasItemLayout>
+  tasks: Record<string, CanvasItemLayout>
+}
+
 export interface NodeConfig {
   id: string
   name: string
@@ -123,6 +155,10 @@ export interface NodeConfig {
   nodePrompt: string              // Node 的任务描述
   llm: LLMSlot                    // Node 级别的 LLM（必需）
   mode: ExecutionMode             // 执行模式：direct/pipeline/loop
+
+  // 兼容旧版执行器和配置文件
+  executionMode?: 'direct' | 'pipeline' | 'subagent'
+  systemPrompt?: string
   
   // 任务列表
   tasks: TaskConfig[]             // Task 列表
@@ -133,6 +169,9 @@ export interface NodeConfig {
   // Schema
   inputSchema?: Record<string, unknown>
   outputSchema?: Record<string, unknown>
+  
+  // 画板布局（可选，兼容旧配置）
+  canvasLayout?: NodeCanvasLayout
   
   // 元数据
   createdAt: string

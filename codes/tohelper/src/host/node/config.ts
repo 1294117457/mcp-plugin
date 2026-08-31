@@ -64,24 +64,24 @@ export function validateNodeConfig(data: any): { error?: string; node?: Omit<Nod
   if (!data.description || typeof data.description !== 'string') return { error: 'description is required' }
   if (data.description.length > 200) return { error: 'description must be ≤ 200 chars' }
 
-  // 执行模式验证（默认 direct）
-  const executionMode = data.executionMode || 'direct'
-  if (!['direct', 'pipeline', 'subagent'].includes(executionMode)) {
-    return { error: 'executionMode must be one of: direct, pipeline, subagent' }
+  // 接受新版字段，同时保留旧版 API 的兼容输入
+  const executionMode = data.mode || data.executionMode || 'direct'
+  const mode = executionMode === 'subagent' ? 'loop' : executionMode
+  if (!['direct', 'pipeline', 'loop'].includes(mode)) {
+    return { error: 'mode must be one of: direct, pipeline, loop' }
   }
 
-  // Direct 模式验证
-  if (executionMode === 'direct') {
-    if (!data.systemPrompt || typeof data.systemPrompt !== 'string') {
-      return { error: 'systemPrompt is required for direct mode' }
-    }
+  const nodePrompt = data.nodePrompt || data.systemPrompt || ''
+  if (!nodePrompt || typeof nodePrompt !== 'string') {
+    return { error: 'nodePrompt is required' }
   }
 
-  // Pipeline 模式验证
-  if (executionMode === 'pipeline') {
-    if (!data.tasks || !Array.isArray(data.tasks) || data.tasks.length === 0) {
-      return { error: 'tasks array is required for pipeline mode' }
-    }
+  const tasks = Array.isArray(data.tasks) ? data.tasks : []
+  if (tasks.length === 0) {
+    return { error: 'tasks array must contain at least one task' }
+  }
+  if (mode === 'direct' && tasks.length > 1) {
+    return { error: 'direct mode supports only one task' }
   }
 
   const DEFAULT_INPUT_SCHEMA = {
@@ -109,19 +109,14 @@ export function validateNodeConfig(data: any): { error?: string; node?: Omit<Nod
   const node: Omit<NodeConfig, 'id' | 'createdAt'> = {
     name: data.name,
     description: data.description,
-    executionMode,
+    nodePrompt,
+    mode,
+    tasks,
+    llm: data.llm || { provider: 'deepseek-official', model: 'deepseek-chat', temperature: 0.7, maxTokens: 2000 },
+    tools: Array.isArray(data.tools) ? data.tools.filter((t: unknown) => typeof t === 'string') : [],
     inputSchema: data.inputSchema || DEFAULT_INPUT_SCHEMA,
     outputSchema: data.outputSchema || DEFAULT_OUTPUT_SCHEMA,
-  }
-
-  // Direct 模式字段
-  if (executionMode === 'direct') {
-    node.systemPrompt = data.systemPrompt
-  }
-
-  // Pipeline 模式字段
-  if (executionMode === 'pipeline' && data.tasks) {
-    node.tasks = data.tasks
+    canvasLayout: data.canvasLayout,
   }
 
   if (data.llm) {
@@ -129,10 +124,6 @@ export function validateNodeConfig(data: any): { error?: string; node?: Omit<Nod
     node.llm = { provider: data.llm.provider, model: data.llm.model }
     if (data.llm.temperature != null) node.llm.temperature = data.llm.temperature
     if (data.llm.maxTokens != null) node.llm.maxTokens = data.llm.maxTokens
-  }
-
-  if (data.tools && Array.isArray(data.tools)) {
-    node.tools = data.tools.filter((t: unknown) => typeof t === 'string')
   }
 
   return { node }
