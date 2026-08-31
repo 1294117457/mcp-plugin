@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ToolPanelData } from './ToolPanel'
 import type { ToolItem } from '../api'
-import { toolApi, nodeApi } from '../api'
+import { toolApi, nodeApi, taskApi } from '../api'
 import { ToolDetailView } from './ToolDetailView'
 
 function getServerName(toolName: string): string {
@@ -25,7 +25,7 @@ interface Props {
 }
 
 export function ToolsTab({ data, reload }: Props) {
-  const [filter, setFilter] = useState<'all' | 'builtin' | 'mcp' | 'node'>('all')
+  const [filter, setFilter] = useState<'all' | 'builtin' | 'mcp' | 'task' | 'node'>('all')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<string | null>(null)
   const [opLoading, setOpLoading] = useState(false)
@@ -37,12 +37,15 @@ export function ToolsTab({ data, reload }: Props) {
   const activeBuiltin = data.tools.builtin
   const allMcp = data.tools.mcp
   const nodeTools = data.nodes
+  const taskTools = data.tasks
   const builtinCount = activeBuiltin.length
   const mcpCount = allMcp.length
   const nodeCount = nodeTools.length
+  const taskCount = taskTools.length
 
   const showBuiltin = filter === 'all' || filter === 'builtin'
   const showMcp = filter === 'all' || filter === 'mcp'
+  const showTask = filter === 'all' || filter === 'task'
   const showNode = filter === 'all' || filter === 'node'
 
   function toggleCollapse(key: string) {
@@ -51,6 +54,23 @@ export function ToolsTab({ data, reload }: Props) {
       if (next.has(key)) next.delete(key); else next.add(key)
       return next
     })
+  }
+
+  async function toggleTaskEquip(taskId: string, equipped: boolean) {
+    setOpLoading(true)
+    setOpError('')
+    try {
+      const res = equipped
+        ? await taskApi.unequip(taskId)
+        : await taskApi.equip(taskId)
+      if (!res.ok) {
+        setOpError(res.error || '操作失败')
+        return
+      }
+      reload()
+    } catch (e: any) {
+      setOpError(String(e?.message ?? e))
+    } finally { setOpLoading(false) }
   }
 
   async function toggleNodeEquip(nodeId: string, equipped: boolean) {
@@ -94,7 +114,7 @@ export function ToolsTab({ data, reload }: Props) {
       )}
       <div className="th-tools-filter">
         <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
-          全部 <span className="n">{builtinCount + mcpCount + nodeCount}</span>
+          全部 <span className="n">{builtinCount + mcpCount + taskCount + nodeCount}</span>
         </button>
         <button className={filter === 'builtin' ? 'active' : ''} onClick={() => setFilter('builtin')}>
           内置 <span className="n">{builtinCount}</span>
@@ -102,8 +122,11 @@ export function ToolsTab({ data, reload }: Props) {
         <button className={filter === 'mcp' ? 'active' : ''} onClick={() => setFilter('mcp')}>
           MCP <span className="n">{mcpCount}</span>
         </button>
+        <button className={filter === 'task' ? 'active' : ''} onClick={() => setFilter('task')}>
+          Task <span className="n">{taskCount}</span>
+        </button>
         <button className={filter === 'node' ? 'active' : ''} onClick={() => setFilter('node')}>
-          节点 <span className="n">{nodeCount}</span>
+          Node <span className="n">{nodeCount}</span>
         </button>
       </div>
       <div className="th-tools-scroll">
@@ -175,6 +198,47 @@ export function ToolsTab({ data, reload }: Props) {
             </div>
           ))
         })()}
+        {showTask && taskCount > 0 && (
+          <div className="th-collapse-group">
+            <div
+              className={`th-collapse-header${collapsed.has('task') ? ' collapsed' : ''}`}
+              onClick={() => toggleCollapse('task')}
+            >
+              <span className="arrow">&#9660;</span>
+              <span className="srv-name">Task 工具</span>
+              <span className="th-cnt">{taskCount}</span>
+            </div>
+            {!collapsed.has('task') && (
+              <div className="th-collapse-body">
+                {taskTools.map(t => (
+                  <div key={t.taskId} className="th-i-wrap">
+                    <div className="th-i clickable" onClick={() => setExpanded(expanded === `task:${t.taskId}` ? null : `task:${t.taskId}`)}>
+                      <span className="th-tg task" style={{ background: '#d1fae5', color: '#065f46' }}>Task</span>
+                      <span className="nm">{t.name}</span>
+                      <span className="ds">{t.description ? (t.description.length > 30 ? t.description.slice(0, 30) + '...' : t.description) : ''}</span>
+                      <span className="th-action-slot" onClick={e => e.stopPropagation()}>
+                        <button
+                          className={`th-equip-toggle${t.equipped ? ' equipped' : ''}`}
+                          disabled={opLoading}
+                          onClick={() => toggleTaskEquip(t.taskId, t.equipped)}
+                        >
+                          {t.equipped ? '已装配' : '装配'}
+                        </button>
+                      </span>
+                    </div>
+                    {expanded === `task:${t.taskId}` && (
+                      <div className="th-i-detail" style={{ display: 'block' }}>
+                        <div className="th-detail-section">
+                          <div className="detail-desc">{t.description || '暂无描述'}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {showNode && nodeCount > 0 && (
           <div className="th-collapse-group">
             <div
@@ -216,7 +280,7 @@ export function ToolsTab({ data, reload }: Props) {
             )}
           </div>
         )}
-        {!builtinCount && !mcpCount && !nodeCount && (
+        {!builtinCount && !mcpCount && !taskCount && !nodeCount && (
           <div className="th-empty">暂无工具（等待 Agent 创建）</div>
         )}
       </div>

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ToolsResponse, SkillItem, McpServer } from '../api'
-import { toolApi, nodeApi } from '../api'
+import { toolApi, nodeApi, taskApi } from '../api'
 import { ToolsTab } from './ToolsTab'
 import { McpTab } from './McpTab'
 import { SkillsTab } from './SkillsTab'
-import type { NodeConfig } from '../../types'
+import type { NodeConfig, TaskConfig } from '../../types'
 
 interface Props {
   btnPos: { x: number; y: number }
@@ -17,6 +17,7 @@ export interface ToolPanelData {
   servers: McpServer[]
   denied: Set<string>
   nodes: Array<{ name: string; description: string; nodeId: string; equipped: boolean }>
+  tasks: Array<{ name: string; description: string; taskId: string; equipped: boolean }>
   loading: boolean
   error: string
 }
@@ -37,6 +38,7 @@ export function ToolPanel({ btnPos, onClose }: Props) {
   const [servers, setServers] = useState<McpServer[]>([])
   const [denied, setDenied] = useState<Set<string>>(new Set())
   const [nodes, setNodes] = useState<Array<{ name: string; description: string; nodeId: string; equipped: boolean }>>([])
+  const [tasks, setTasks] = useState<Array<{ name: string; description: string; taskId: string; equipped: boolean }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -45,8 +47,8 @@ export function ToolPanel({ btnPos, onClose }: Props) {
   const reload = useCallback(() => {
     if (isInitialLoad.current) setLoading(true)
     setError('')
-    Promise.all([toolApi.getTools(), toolApi.getSkills(), toolApi.getMcpServers(), nodeApi.list()])
-      .then(([t, s, m, n]) => {
+    Promise.all([toolApi.getTools(), toolApi.getSkills(), toolApi.getMcpServers(), nodeApi.list(), taskApi.list()])
+      .then(([t, s, m, n, tk]) => {
         setTools(t)
         setSkills(s.skills)
         setServers(m.servers)
@@ -56,6 +58,12 @@ export function ToolPanel({ btnPos, onClose }: Props) {
           description: nd.description || '',
           nodeId: nd.id,
           equipped: n.equipped.includes(nd.id),
+        })))
+        setTasks(tk.tasks.map((td: TaskConfig) => ({
+          name: td.name,
+          description: td.description || '',
+          taskId: td.id,
+          equipped: tk.equipped.includes(td.id),
         })))
         setLoading(false)
         isInitialLoad.current = false
@@ -76,7 +84,7 @@ export function ToolPanel({ btnPos, onClose }: Props) {
   if (left + PANEL_W > window.innerWidth - 8) left = window.innerWidth - PANEL_W - 8
   if (top + PANEL_H > window.innerHeight - 8) top = window.innerHeight - PANEL_H - 8
 
-  const data: ToolPanelData = { tools, skills, servers, denied, nodes, loading, error }
+  const data: ToolPanelData = { tools, skills, servers, denied, nodes, tasks, loading, error }
 
   return (
     <div className="th-panel" style={{

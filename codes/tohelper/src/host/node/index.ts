@@ -1,136 +1,133 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentTracker } from '../agent-tracker.js'
-import type { NodeConfig, NodeConfigFile } from '../../types.js'
-import { loadNodeConfig, saveNodeConfigDebounced } from './config.js'
+import type { ConfigFile } from '../../types.js'
+import { saveConfigDebounced } from './config.js'
 import { createNodeExecutor, type NodeExecutor } from './executor.js'
 import { registerNodeRoutes } from './routes.js'
 
 export interface NodeModule {
-  config: NodeConfigFile
   executor: NodeExecutor
   equippedDisposers: Map<string, () => void>
   equipNode(nodeId: string): { ok: boolean; error?: string; toolName?: string }
   unequipNode(nodeId: string): { ok: boolean; error?: string }
-  getNodeToolsList(): Array<{ name: string; description: string; nodeId: string; equipped: boolean }>
 }
 
-export function setupNodeModule(ctx: Context, tracker: AgentTracker): void {
-  const config = loadNodeConfig()
-  const executor = createNodeExecutor(ctx)
+export function setupNodeModule(ctx: Context, config: ConfigFile, tracker: AgentTracker): NodeModule {
+  const executor = createNodeExecutor(ctx, config)
   const equippedDisposers = new Map<string, () => void>()
 
-  console.log(`[tohelper] node config loaded: ${Object.keys(config.nodes).length} nodes, ${config.equipped.length} equipped`)
+  console.log(`[tohelper] node module: ${Object.keys(config.nodes).length} nodes`)
 
-  function equipNode(nodeId: string): { ok: boolean; error?: string; toolName?: string } {
-    const agent = tracker.getAgent()
-    if (!agent) return { ok: false, error: 'no active agent' }
+  function buildToolDef(node: ConfigFile['nodes'][string]) {
+    return {
+      name: node.name,
+      description: node.description,
+      parameters: node.inputSchema,
+      output: {
+        schema: node.outputSchema,
+        render: (_args: unknown, value: any) => [{ type: 'text', text: value?.result ?? String(value ?? '') }],
+      },
+      async execute(args: unknown) {
+        const currentAgent = tracker.getAgent()
+        if (!currentAgent) throw new Error('no active agent for node execution')
+        return executor.run(node, args, currentAgent)
+      },
+    }
+  }
 
+  function equipNodeOnAgent(nodeId: string, agent: any): { ok: boolean; error?: string; toolName?: string } {
     const node = config.nodes[nodeId]
     if (!node) return { ok: false, error: 'node not found' }
     if (equippedDisposers.has(nodeId)) return { ok: false, error: 'already equipped' }
 
-    // Check name conflict with existing tools
     try {
-      const schemas = ctx.tools.schemas(agent)
-      if (schemas.some((s: any) => s.name === node.name)) {
-        return { ok: false, error: `tool name conflicts with existing: ${node.name}` }
-      }
-    } catch { /* empty */ }
-
-    try {
-      const toolDef = {
-        name: node.name,
-        description: node.description || '',
-        parameters: node.inputSchema,
-        output: {
-          schema: node.outputSchema,
-          render: (_args: unknown, value: any) => [{ type: 'text', text: value?.result ?? String(value ?? '') }],
-        },
-        async execute(args: unknown) {
-          return executor.run(node, args, agent)
-        },
-      }
-
-      // Try agent-scoped registration first, then context-level
-      let disposer: () => void
-      try {
-        disposer = agent.ctx.tools.register(toolDef)
-      } catch {
-        disposer = ctx.tools.register(toolDef)
-      }
-
+      const toolDef = buildToolDef(node)
+      const disposer = agent.ctx.tools.register(toolDef)
       equippedDisposers.set(nodeId, disposer)
 
       if (!config.equipped.includes(nodeId)) {
         config.equipped.push(nodeId)
-        saveNodeConfigDebounced(config)
+        saveConfigDebounced(config)
       }
 
-      console.log(`[tohelper] node "${node.name}" equipped`)
+      console.log(`[tohelper] node "${node.name}" equipped on agent ${agent.id ?? '(unknown)'}`)
       return { ok: true, toolName: node.name }
     } catch (e: any) {
-      console.error(`[tohelper] node equip failed:`, e)
-      return { ok: false, error: String(e?.message ?? e) }
+      console.error(`[tohelper] node equip on agent scope failed:`, e?.message)
+      // Fallback to global registration
+      try {
+        const toolDef = buildToolDef(node)
+        const disposer = ctx.tools.register(toolDef)
+        equippedDisposers.set(nodeId, disposer)
+        if (!config.equipped.includes(nodeId)) {
+          config.equipped.push(nodeId)
+          saveConfigDebounced(config)
+        }
+        console.log(`[tohelper] node "${node.name}" equipped (global fallback)`)
+        return { ok: true, toolName: node.name }
+      } catch (e2: any) {
+        console.error(`[tohelper] node equip global fallback also failed:`, e2?.message)
+        return { ok: false, error: String(e2?.message ?? e2) }
+      }
     }
+  }
+
+  function equipNode(nodeId: string): { ok: boolean; error?: string; toolName?: string } {
+    const agent = tracker.getAgent()
+    if (!agent) return { ok: false, error: 'no active agent' }
+    return equipNodeOnAgent(nodeId, agent)
   }
 
   function unequipNode(nodeId: string): { ok: boolean; error?: string } {
     const disposer = equippedDisposers.get(nodeId)
     if (!disposer) return { ok: false, error: 'not equipped' }
 
-    disposer()
+    try { disposer() } catch { /* disposed scope is fine */ }
     equippedDisposers.delete(nodeId)
     config.equipped = config.equipped.filter(id => id !== nodeId)
-    saveNodeConfigDebounced(config)
+    saveConfigDebounced(config)
 
     const node = config.nodes[nodeId]
     console.log(`[tohelper] node "${node?.name ?? nodeId}" unequipped`)
     return { ok: true }
   }
 
-  function getNodeToolsList(): Array<{ name: string; description: string; nodeId: string; equipped: boolean }> {
-    return Object.values(config.nodes).map(node => ({
-      name: node.name,
-      description: node.description || '',
-      nodeId: node.id,
-      equipped: equippedDisposers.has(node.id),
-    }))
+  function equipAllOnAgent(agent: any) {
+    // Clear old disposers from previous agent
+    for (const d of equippedDisposers.values()) { try { d() } catch { /* empty */ } }
+    equippedDisposers.clear()
+
+    const toEquip = config.equipped.filter(id => id.startsWith('node-'))
+    for (const nodeId of toEquip) {
+      if (config.nodes[nodeId]) equipNodeOnAgent(nodeId, agent)
+    }
   }
 
-  // Agent lifecycle handling
+  // Re-equip when a new agent session starts
   try {
-    ctx.on('agent/disposed' as any, ({ agent }: any) => {
-      if (agent === tracker.getAgent()) {
-        for (const dispose of equippedDisposers.values()) {
-          dispose()
-        }
-        equippedDisposers.clear()
-      }
-    })
-
-    ctx.on('agent/created' as any, () => {
-      const toEquip = [...config.equipped]
-      equippedDisposers.clear()
-      for (const nodeId of toEquip) {
-        if (config.nodes[nodeId]) {
-          equipNode(nodeId)
-        }
-      }
+    ctx.on('agent/created' as any, (payload: any) => {
+      const agent = payload?.agent ?? payload
+      if (!agent?.ctx) return
+      console.log(`[tohelper:node] agent/created → re-equip on agent ${agent.id ?? '(unknown)'}`)
+      equipAllOnAgent(agent)
     })
   } catch { /* empty */ }
 
-  // Auto-equip on startup
+  // Startup fallback: equip after tracker has an agent
   setTimeout(() => {
-    if (tracker.getAgent() && config.equipped.length > 0) {
-      const toEquip = [...config.equipped]
-      config.equipped = []
-      equippedDisposers.clear()
-      for (const nodeId of toEquip) {
-        if (config.nodes[nodeId]) equipNode(nodeId)
+    if (!equippedDisposers.size && tracker.getAgent()) {
+      const toEquip = config.equipped.filter(id => id.startsWith('node-'))
+      if (toEquip.length > 0) {
+        console.log(`[tohelper:node] startup fallback equip`)
+        for (const nodeId of toEquip) {
+          if (config.nodes[nodeId]) equipNode(nodeId)
+        }
       }
     }
-  }, 2000)
+  }, 3000)
 
-  const nodeModule: NodeModule = { config, executor, equippedDisposers, equipNode, unequipNode, getNodeToolsList }
-  registerNodeRoutes(ctx, nodeModule, tracker)
+  const nodeModule: NodeModule = { executor, equippedDisposers, equipNode, unequipNode }
+  registerNodeRoutes(ctx, config, nodeModule, tracker)
+
+  return nodeModule
 }

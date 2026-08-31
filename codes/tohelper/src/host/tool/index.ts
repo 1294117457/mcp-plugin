@@ -409,29 +409,24 @@ export function setupToolModule(ctx: Context, tracker: AgentTracker): void {
           ctx.logger.warn('[tohelper] 从 Agent 配置获取模型失败:', err)
         }
         
-        // 方式 4: 从历史配置文件获取
+        // 方式 4: 从 config.json 获取已配置的模型
         try {
-          const configPath = '/home/dustp/codes/mcp-plugin/codes/tohelper/data/node-config.json'
+          const { DATA_DIR } = await import('./config.js')
+          const { resolve } = await import('path')
           const fs = await import('fs/promises')
-          const configContent = await fs.readFile(configPath, 'utf-8')
-          const nodeConfig = JSON.parse(configContent)
-          
-          if (nodeConfig.nodes) {
-            for (const node of Object.values(nodeConfig.nodes) as any[]) {
-              if (node.llm) {
-                const key = `${node.llm.provider}/${node.llm.model}`
-                if (!llms.find(l => l.displayName === key)) {
-                  llms.push({
-                    provider: node.llm.provider,
-                    model: node.llm.model,
-                    displayName: key
-                  })
-                }
+          const configContent = await fs.readFile(resolve(DATA_DIR, 'config.json'), 'utf-8')
+          const cfgFile = JSON.parse(configContent)
+
+          for (const item of [...Object.values(cfgFile.tasks ?? {}), ...Object.values(cfgFile.nodes ?? {})] as any[]) {
+            if (item.llm) {
+              const key = `${item.llm.provider}/${item.llm.model}`
+              if (!llms.find(l => l.displayName === key)) {
+                llms.push({ provider: item.llm.provider, model: item.llm.model, displayName: key })
               }
             }
           }
         } catch (err) {
-          ctx.logger.warn('[tohelper] 从历史配置获取模型失败:', err)
+          ctx.logger.warn('[tohelper] 从配置文件获取模型失败:', err)
         }
         
         // 如果仍然没有任何模型，使用默认列表

@@ -2,15 +2,18 @@ import { useState, useEffect, useCallback } from 'react'
 import { FloatingButton } from './FloatingButton'
 import { SatelliteMenu } from './SatelliteMenu'
 import { ToolPanel } from '../tool/ToolPanel'
+import { TaskPanel } from '../task/TaskPanel'
 import { NodePanel } from '../node/NodePanel'
+import { configApi } from '../api/node'
 import { CSS } from '../shared/styles'
 
-type ActivePanel = 'tool' | 'node' | null
+type ActivePanel = 'tool' | 'task' | 'node' | null
 
 export function TohelperApp() {
   const [btnPos, setBtnPos] = useState({ x: -1, y: -1 })
   const [menuOpen, setMenuOpen] = useState(false)
   const [activePanel, setActivePanel] = useState<ActivePanel>(null)
+  const [reloadMsg, setReloadMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const style = document.querySelector('style[data-plugin-css="tohelper"]')
@@ -37,7 +40,22 @@ export function TohelperApp() {
     }
   }, [activePanel])
 
-  const handleSatelliteSelect = useCallback((id: string) => {
+  const handleSatelliteSelect = useCallback(async (id: string) => {
+    if (id === 'reload') {
+      setMenuOpen(false)
+      try {
+        const res = await configApi.reload()
+        if (res.ok) {
+          setReloadMsg(`Reloaded: ${res.tasks} tasks, ${res.nodes} nodes`)
+        } else {
+          setReloadMsg(`Reload failed: ${res.error}`)
+        }
+      } catch (e: any) {
+        setReloadMsg(`Reload error: ${e.message}`)
+      }
+      setTimeout(() => setReloadMsg(null), 3000)
+      return
+    }
     setMenuOpen(false)
     setActivePanel(id as ActivePanel)
   }, [])
@@ -59,16 +77,24 @@ export function TohelperApp() {
           center={btnPos}
           items={[
             { id: 'tool', label: '工具' },
-            { id: 'node', label: '节点' },
+            { id: 'task', label: '任务' },
+            { id: 'node', label: '编排' },
+            { id: 'reload', label: '刷新' },
           ]}
           onSelect={handleSatelliteSelect}
         />
       )}
-      {activePanel === 'tool' && (
-        <ToolPanel btnPos={btnPos} onClose={handleClosePanel} />
-      )}
-      {activePanel === 'node' && (
-        <NodePanel btnPos={btnPos} onClose={handleClosePanel} />
+      {activePanel === 'tool' && <ToolPanel btnPos={btnPos} onClose={handleClosePanel} />}
+      {activePanel === 'task' && <TaskPanel btnPos={btnPos} onClose={handleClosePanel} />}
+      {activePanel === 'node' && <NodePanel btnPos={btnPos} onClose={handleClosePanel} />}
+      {reloadMsg && (
+        <div style={{
+          position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+          background: '#1e293b', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8,
+          fontSize: 13, zIndex: 999, pointerEvents: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+        }}>
+          {reloadMsg}
+        </div>
       )}
     </div>
   )

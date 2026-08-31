@@ -1,5 +1,38 @@
 import type { NodeConfig, TaskConfig } from '../../types'
 
+// ===== Task API =====
+
+export interface TaskListResponse {
+  ok: boolean
+  tasks: TaskConfig[]
+  equipped: string[]
+}
+
+export interface CreateTaskPayload {
+  name: string
+  description: string
+  taskPrompt: string
+  llm: { provider: string; model: string; temperature?: number; maxTokens?: number }
+  tools?: string[]
+  inputSchema?: Record<string, unknown>
+  outputSchema?: Record<string, unknown>
+}
+
+export type UpdateTaskPayload = CreateTaskPayload & { id: string }
+
+const TASK_BASE = '/api/tohelper/task'
+
+export const taskApi = {
+  list: () => fetchJson<TaskListResponse>(`${TASK_BASE}/list`),
+  create: (data: CreateTaskPayload) => postJson<{ ok: boolean; task?: TaskConfig; error?: string }>(`${TASK_BASE}/create`, data),
+  update: (data: UpdateTaskPayload) => postJson<{ ok: boolean; error?: string }>(`${TASK_BASE}/update`, data),
+  delete: (id: string) => postJson<{ ok: boolean; error?: string }>(`${TASK_BASE}/delete`, { id }),
+  equip: (id: string) => postJson<{ ok: boolean; toolName?: string; error?: string }>(`${TASK_BASE}/equip`, { id }),
+  unequip: (id: string) => postJson<{ ok: boolean; error?: string }>(`${TASK_BASE}/unequip`, { id }),
+}
+
+// ===== Node API =====
+
 export interface NodeListResponse {
   ok: boolean
   nodes: NodeConfig[]
@@ -9,56 +42,45 @@ export interface NodeListResponse {
 export interface CreateNodePayload {
   name: string
   description: string
-  executionMode: 'direct' | 'pipeline' | 'subagent'
-  
-  // direct 模式字段
-  systemPrompt?: string
-  llm?: { provider: string; model: string; temperature?: number; maxTokens?: number }
-  
-  // pipeline 模式字段
-  tasks?: TaskConfig[]
-  
-  // 通用字段
-  tools?: string[]
+  mode: 'pipeline' | 'loop'
+  nodePrompt: string
+  llm: { provider: string; model: string; temperature?: number; maxTokens?: number }
+  tasks: string[]
   inputSchema?: Record<string, unknown>
   outputSchema?: Record<string, unknown>
 }
 
 export type UpdateNodePayload = CreateNodePayload & { id: string }
 
-export interface TaskTypesResponse {
-  ok: boolean
-  types: string[]
+const NODE_BASE = '/api/tohelper/node'
+
+export const nodeApi = {
+  list: () => fetchJson<NodeListResponse>(`${NODE_BASE}/list`),
+  create: (data: CreateNodePayload) => postJson<{ ok: boolean; node?: NodeConfig; error?: string }>(`${NODE_BASE}/create`, data),
+  update: (data: UpdateNodePayload) => postJson<{ ok: boolean; warning?: string; error?: string }>(`${NODE_BASE}/update`, data),
+  delete: (id: string) => postJson<{ ok: boolean; error?: string }>(`${NODE_BASE}/delete`, { id }),
+  equip: (id: string) => postJson<{ ok: boolean; toolName?: string; error?: string }>(`${NODE_BASE}/equip`, { id }),
+  unequip: (id: string) => postJson<{ ok: boolean; error?: string }>(`${NODE_BASE}/unequip`, { id }),
 }
 
-const BASE = '/api/tohelper/node'
+// ===== Config API =====
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+export const configApi = {
+  reload: () => fetchJson<{ ok: boolean; tasks?: number; nodes?: number; equipped?: number; results?: string[]; error?: string }>('/api/tohelper/config/reload'),
+}
+
+// ===== Helpers =====
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url)
   return res.json()
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+async function postJson<T>(url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   })
   return res.json()
-}
-
-export const nodeApi = {
-  list: () => get<NodeListResponse>('/list'),
-  create: (data: CreateNodePayload) => post<{ ok: boolean; node?: NodeConfig; error?: string }>('/create', data),
-  update: (data: UpdateNodePayload) => post<{ ok: boolean; warning?: string; error?: string }>('/update', data),
-  delete: (id: string) => post<{ ok: boolean; error?: string }>('/delete', { id }),
-  equip: (id: string) => post<{ ok: boolean; toolName?: string; error?: string }>('/equip', { id }),
-  unequip: (id: string) => post<{ ok: boolean; error?: string }>('/unequip', { id }),
-}
-
-export const taskApi = {
-  getTypes: async (): Promise<TaskTypesResponse> => {
-    const res = await fetch('/api/tohelper/task/types')
-    return res.json()
-  }
 }
