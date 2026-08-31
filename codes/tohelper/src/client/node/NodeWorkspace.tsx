@@ -20,9 +20,11 @@ type DragMode = 'move-node' | 'move-task' | 'resize-node' | 'resize-task' | 'pan
 const DEFAULT_NODE_SIZE = { width: 360, height: 330 }
 const DEFAULT_TASK_SIZE = { width: 220, height: 72 }
 const MIN_NODE_SIZE = { width: 300, height: 220 }
-const MAX_NODE_SIZE = { width: 900, height: 720 }
+const MAX_NODE_SIZE = { width: 2400, height: 3000 }
 const MIN_TASK_SIZE = { width: 150, height: 58 }
-const MAX_TASK_SIZE = { width: 480, height: 300 }
+const MAX_TASK_SIZE = { width: 1200, height: 800 }
+const MIN_ZOOM = 0.15
+const MAX_ZOOM = 4
 const CANVAS_INSET = 12
 const NODE_HEADER_HEIGHT = 64
 const NODE_BASE_HEIGHT = 48
@@ -155,7 +157,7 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
   const [layouts, setLayouts] = useState<Record<string, NodeCanvasLayout>>({})
   const [viewport, setViewport] = useState({ x: DEFAULT_VIEWPORT.x, y: DEFAULT_VIEWPORT.y, zoom: DEFAULT_VIEWPORT.zoom })
   const [dirty, setDirty] = useState(false)
-  const [drag, setDrag] = useState<{ mode: DragMode; nodeId: string; taskId?: string; start: CanvasPoint; position: CanvasPoint; size: CanvasSize } | null>(null)
+  const [drag, setDrag] = useState<{ mode: DragMode; nodeId?: string; taskId?: string; start: CanvasPoint; position: CanvasPoint; size: CanvasSize } | null>(null)
   const [error, setError] = useState('')
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -257,7 +259,14 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
   }, [layouts])
 
   const onPointerMove = useCallback((event: React.PointerEvent) => {
-    if (!drag?.nodeId) return
+    if (!drag) return
+    if (drag.mode === 'pan') {
+      const dx = event.clientX - drag.start.x
+      const dy = event.clientY - drag.start.y
+      setViewport(current => ({ ...current, x: drag.position.x + dx, y: drag.position.y + dy }))
+      return
+    }
+    if (!drag.nodeId) return
     const dx = (event.clientX - drag.start.x) / viewport.zoom
     const dy = (event.clientY - drag.start.y) / viewport.zoom
     const layout = layouts[drag.nodeId]
@@ -338,14 +347,14 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
         bottom: Math.max(result.bottom, item.position.y + item.size.height),
       }
     }, { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity })
-    const zoom = clamp(Math.min((rect.width - 80) / (bounds.right - bounds.left), (rect.height - 80) / (bounds.bottom - bounds.top)), 0.5, 1.5)
+    const zoom = clamp(Math.min((rect.width - 80) / (bounds.right - bounds.left), (rect.height - 80) / (bounds.bottom - bounds.top)), MIN_ZOOM, MAX_ZOOM)
     setViewport({ zoom, x: (rect.width - (bounds.right - bounds.left) * zoom) / 2 - bounds.left * zoom, y: (rect.height - (bounds.bottom - bounds.top) * zoom) / 2 - bounds.top * zoom })
   }, [layouts, nodes])
 
   const handleWheel = useCallback((event: React.WheelEvent) => {
     if (!event.ctrlKey && !event.metaKey) return
     event.preventDefault()
-    setViewport(current => ({ ...current, zoom: clamp(current.zoom - event.deltaY * 0.001, 0.5, 2) }))
+    setViewport(current => ({ ...current, zoom: clamp(current.zoom - event.deltaY * 0.001, MIN_ZOOM, MAX_ZOOM) }))
   }, [])
 
   const toggleNodeCollapsed = useCallback((nodeId: string) => {
@@ -371,8 +380,8 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
         <div className="th-workspace-heading"><span className="th-workspace-mark">⌘</span><div><strong>Node 工作画板</strong><span>{nodes.length} 个 Node{dirty ? ' · 有未保存修改' : ''}</span></div></div>
         <div className="th-workspace-actions">
           <button className="th-canvas-btn th-canvas-btn-create" onClick={addNode}>＋ 创建 Node</button>
-          <button className="th-canvas-btn" onClick={() => setViewport(current => ({ ...current, zoom: clamp(current.zoom + 0.1, 0.5, 2) }))}>＋</button>
-          <button className="th-canvas-btn" onClick={() => setViewport(current => ({ ...current, zoom: clamp(current.zoom - 0.1, 0.5, 2) }))}>−</button>
+          <button className="th-canvas-btn" onClick={() => setViewport(current => ({ ...current, zoom: clamp(current.zoom + 0.1, MIN_ZOOM, MAX_ZOOM) }))}>＋</button>
+          <button className="th-canvas-btn" onClick={() => setViewport(current => ({ ...current, zoom: clamp(current.zoom - 0.1, MIN_ZOOM, MAX_ZOOM) }))}>−</button>
           <button className="th-canvas-btn th-canvas-zoom" onClick={() => setViewport({ ...DEFAULT_VIEWPORT })}>{Math.round(viewport.zoom * 100)}%</button>
           <button className="th-canvas-btn" onClick={fitCanvas}>适应画布</button>
           <button className="th-canvas-btn th-canvas-save" onClick={saveAll} disabled={!dirty}>保存</button>
@@ -380,13 +389,21 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
       </div>
       {error && <div className="th-workspace-error">{error}</div>}
       <div className="th-workspace-main">
-        <div className="th-canvas-shell" ref={canvasRef} onWheel={handleWheel}>
+        <div className={`th-canvas-shell${drag?.mode === 'pan' ? ' panning' : ''}`} ref={canvasRef} onWheel={handleWheel} onPointerDown={(event) => {
+          const target = event.target as HTMLElement
+          if (event.button === 1 || (event.button === 0 && (target === canvasRef.current || target.classList.contains('th-canvas-viewport')))) {
+            event.preventDefault()
+            ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+            setDrag({ mode: 'pan', start: { x: event.clientX, y: event.clientY }, position: { x: viewport.x, y: viewport.y }, size: { width: 0, height: 0 } })
+            if (event.button === 0) setSelection(null)
+          }
+        }} onPointerMove={onPointerMove} onPointerUp={endPointer}>
           {loading ? <div className="th-canvas-empty">加载 Node 中...</div> : nodes.length === 0 ? <div className="th-canvas-empty"><strong>还没有 Node</strong><span>点击上方“创建 Node”开始配置</span><button className="th-canvas-btn th-canvas-btn-create" onClick={addNode}>＋ 创建 Node</button></div> : (
-            <div className="th-canvas-viewport" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }} onPointerMove={onPointerMove} onPointerUp={endPointer}>
+            <div className="th-canvas-viewport" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }}>
               {nodes.map((node, index) => {
                 const layout = layouts[node.id] || ensureLayout(node, index)
                 const nodeItem = layout.nodes[node.id]
-                return <CanvasNode key={node.id} node={node} layout={layout} nodeItem={nodeItem} selected={selection?.nodeId === node.id && !selection.taskId} selectedTaskId={selection?.nodeId === node.id ? selection.taskId : undefined} equipped={equippedNodeIds.includes(node.id)} onSelect={(taskId) => setSelection({ nodeId: node.id, taskId })} onToggleNode={() => toggleNodeCollapsed(node.id)} onToggleTask={(taskId) => toggleTaskCollapsed(node.id, taskId)} onBegin={beginPointer} onAddTask={addTask} onDeleteTask={deleteTask} onResize={(event) => beginPointer(event, 'resize-node', node.id)} />
+                return <CanvasNode key={node.id} node={node} layout={layout} nodeItem={nodeItem} selected={selection?.nodeId === node.id && !selection.taskId} selectedTaskId={selection?.nodeId === node.id ? selection.taskId : undefined} equipped={equippedNodeIds.includes(node.id)} onSelect={(taskId) => setSelection({ nodeId: node.id, taskId })} onToggleNode={() => toggleNodeCollapsed(node.id)} onToggleTask={(taskId) => toggleTaskCollapsed(node.id, taskId)} onBegin={beginPointer} onAddTask={addTask} onDeleteTask={deleteTask} onResize={(event) => beginPointer(event, 'resize-node', node.id)} onChangeMode={changeMode} />
               })}
             </div>
           )}
@@ -411,12 +428,14 @@ interface CanvasNodeProps {
   onAddTask: (nodeId: string) => void
   onDeleteTask: (nodeId: string, taskId: string) => void
   onResize: (event: React.PointerEvent) => void
+  onChangeMode: (nodeId: string, mode: ExecutionMode) => void
 }
 
-function CanvasNode({ node, layout, nodeItem, selected, selectedTaskId, onSelect, onToggleNode, onToggleTask, onBegin, onAddTask, onDeleteTask, onResize }: CanvasNodeProps) {
+function CanvasNode({ node, layout, nodeItem, selected, selectedTaskId, onSelect, onToggleNode, onToggleTask, onBegin, onAddTask, onDeleteTask, onResize, onChangeMode }: CanvasNodeProps) {
   const mode = getMode(node)
   const taskLayouts = layout.tasks
   const expanded = !nodeItem.collapsed
+  const collapsedHeight = NODE_HEADER_HEIGHT + NODE_BASE_HEIGHT
   const taskNodes = node.tasks.map((task, index) => {
     const item = taskLayouts[task.id] || { position: { x: 60, y: 52 + index * 92 }, size: DEFAULT_TASK_SIZE }
     return { task, item, index }
@@ -425,11 +444,22 @@ function CanvasNode({ node, layout, nodeItem, selected, selectedTaskId, onSelect
     const next = taskNodes[index + 1]
     return { x1: current.item.position.x + current.item.size.width / 2, y1: current.item.position.y + current.item.size.height, x2: next.item.position.x + next.item.size.width / 2, y2: next.item.position.y }
   }) : []
+  const llm = node.llm || { model: 'deepseek-chat', temperature: 0.7 }
+  const modelShort = llm.model?.replace(/^.*\//, '') || 'default'
+  const modeOrder: ExecutionMode[] = ['direct', 'pipeline', 'loop']
+  function cycleMode(event: React.MouseEvent) {
+    event.stopPropagation()
+    const nextIndex = (modeOrder.indexOf(mode) + 1) % modeOrder.length
+    onChangeMode(node.id, modeOrder[nextIndex])
+  }
   return (
-    <section className={`th-canvas-node th-canvas-node-${mode} ${selected ? 'selected' : ''} ${expanded ? '' : 'collapsed'}`} style={{ left: nodeItem.position.x, top: nodeItem.position.y, width: nodeItem.size.width, height: nodeItem.size.height, zIndex: nodeItem.zIndex || 1 }} onPointerDown={(event) => { if ((event.target as HTMLElement).closest('.th-canvas-task, button, .th-canvas-resize')) return; onSelect(); onBegin(event, 'move-node', node.id) }}>
+    <section className={`th-canvas-node th-canvas-node-${mode} ${selected ? 'selected' : ''} ${expanded ? '' : 'collapsed'}`} style={{ left: nodeItem.position.x, top: nodeItem.position.y, width: nodeItem.size.width, height: expanded ? nodeItem.size.height : collapsedHeight, zIndex: nodeItem.zIndex || 1 }} onPointerDown={(event) => { if ((event.target as HTMLElement).closest('.th-canvas-task, button, .th-canvas-resize')) return; onSelect(); onBegin(event, 'move-node', node.id) }}>
       <div className="th-canvas-node-header">
         <span className="th-canvas-node-icon">{mode === 'loop' ? '⟳' : mode === 'pipeline' ? '≡' : '●'}</span>
-        <div className="th-canvas-node-title"><strong>{node.name || '未命名 Node'}</strong><span>{mode.toUpperCase()} · {node.tasks.length} Task</span></div>
+        <div className="th-canvas-node-title">
+          <strong>{node.name || '未命名 Node'}</strong>
+          <span>{mode.toUpperCase()} · {node.tasks.length} Task · {modelShort} · T={llm.temperature ?? 0.7}</span>
+        </div>
         <button className="th-canvas-collapse" onClick={(event) => { event.stopPropagation(); onToggleNode() }}>{nodeItem.collapsed ? '›' : '⌄'}</button>
       </div>
       {expanded && <div className="th-canvas-node-body">
@@ -437,8 +467,8 @@ function CanvasNode({ node, layout, nodeItem, selected, selectedTaskId, onSelect
         {taskNodes.map(({ task, item, index }) => <CanvasTask key={task.id} nodeId={node.id} task={task} item={item} index={index} mode={mode} selected={selectedTaskId === task.id} onSelect={() => onSelect(task.id)} onToggleTask={onToggleTask} onBegin={onBegin} onDelete={() => onDeleteTask(node.id, task.id)} onResize={(event) => onBegin(event, 'resize-task', node.id, task.id)} />)}
         <button className="th-canvas-add-task" onClick={(event) => { event.stopPropagation(); onAddTask(node.id) }} disabled={mode === 'direct' && node.tasks.length >= 1}>＋ 添加 Task</button>
       </div>}
-      <div className="th-canvas-node-base"><span>{node.description || '未填写描述'}</span><span className="th-canvas-mode-pill">{mode}</span></div>
-      <button className="th-canvas-resize" aria-label="缩放 Node" onPointerDown={onResize}>◢</button>
+      <div className="th-canvas-node-base"><span>{node.description || '未填写描述'}</span><span className="th-canvas-mode-pill clickable" onClick={cycleMode} title="点击切换模式">{mode}</span></div>
+      {expanded && <button className="th-canvas-resize" aria-label="缩放 Node" onPointerDown={onResize}>◢</button>}
     </section>
   )
 }
@@ -464,9 +494,9 @@ function NodeInspector({ node, availableTools, availableLLMs, equipped, onUpdate
   const [open, setOpen] = useState({ identity: true, target: true, runtime: true, tasks: true })
   const toggle = (key: keyof typeof open) => setOpen(current => ({ ...current, [key]: !current[key] }))
   return <aside className="th-inspector"><InspectorTitle eyebrow="NODE" title={node.name || '未命名 Node'} meta={`${mode.toUpperCase()} · ${node.tasks.length} TASKS`} />
-    <InspectorGroup title="基本信息" open={open.identity} onToggle={() => toggle('identity')}><label>名称<input value={node.name} onChange={(e) => onUpdate({ name: e.target.value })} /></label><label>描述<input value={node.description || ''} onChange={(e) => onUpdate({ description: e.target.value })} /></label></InspectorGroup>
+    <InspectorGroup title="基本信息" open={open.identity} onToggle={() => toggle('identity')}><div className="th-inspector-row"><label className="th-inspector-row-item">名称<input value={node.name} onChange={(e) => onUpdate({ name: e.target.value })} /></label><label className="th-inspector-row-item">描述<input value={node.description || ''} onChange={(e) => onUpdate({ description: e.target.value })} /></label></div></InspectorGroup>
     <InspectorGroup title="Node 目标" open={open.target} onToggle={() => toggle('target')}><label>Node Prompt<textarea rows={4} value={node.nodePrompt || ''} onChange={(e) => onUpdate({ nodePrompt: e.target.value })} /></label></InspectorGroup>
-    <InspectorGroup title="运行配置" open={open.runtime} onToggle={() => toggle('runtime')}><label>默认 LLM<select value={`${llm.provider}/${llm.model}`} onChange={(e) => { const [provider, model] = e.target.value.split('/'); onUpdate({ llm: { ...llm, provider, model } }) }}>{(availableLLMs.length ? availableLLMs : [{ provider: 'deepseek-official', model: 'deepseek-chat', displayName: 'deepseek-official/deepseek-chat' }, { provider: 'deepseek-official', model: 'deepseek-reasoner', displayName: 'deepseek-official/deepseek-reasoner' }]).map(item => <option key={item.displayName} value={`${item.provider}/${item.model}`}>{item.displayName}</option>)}</select></label><label>Temperature<input type="number" min="0" max="2" step="0.1" value={llm.temperature ?? 0.7} onChange={(e) => onUpdate({ llm: { ...llm, temperature: Number(e.target.value) } })} /></label><span className="th-inspector-label">执行模式</span><div className="th-inspector-mode-buttons">{(['direct', 'pipeline', 'loop'] as ExecutionMode[]).map(item => <button key={item} className={mode === item ? 'active' : ''} onClick={() => onChangeMode(item)}>{item}</button>)}</div><span className="th-inspector-hint">{mode === 'direct' ? '单个 Task，直接执行' : mode === 'pipeline' ? 'Task 按 order 顺序执行' : 'LLM 动态选择 Task'}</span></InspectorGroup>
+    <InspectorGroup title="运行配置" open={open.runtime} onToggle={() => toggle('runtime')}><div className="th-inspector-row"><label className="th-inspector-row-item th-inspector-row-flex2">默认 LLM<select value={`${llm.provider}/${llm.model}`} onChange={(e) => { const [provider, model] = e.target.value.split('/'); onUpdate({ llm: { ...llm, provider, model } }) }}>{(availableLLMs.length ? availableLLMs : [{ provider: 'deepseek-official', model: 'deepseek-chat', displayName: 'deepseek-official/deepseek-chat' }, { provider: 'deepseek-official', model: 'deepseek-reasoner', displayName: 'deepseek-official/deepseek-reasoner' }]).map(item => <option key={item.displayName} value={`${item.provider}/${item.model}`}>{item.displayName}</option>)}</select></label><label className="th-inspector-row-item">Temperature<input type="number" min="0" max="2" step="0.1" value={llm.temperature ?? 0.7} onChange={(e) => onUpdate({ llm: { ...llm, temperature: Number(e.target.value) } })} /></label></div><span className="th-inspector-label">执行模式</span><div className="th-inspector-mode-buttons">{(['direct', 'pipeline', 'loop'] as ExecutionMode[]).map(item => <button key={item} className={mode === item ? 'active' : ''} onClick={() => onChangeMode(item)}>{item}</button>)}</div><span className="th-inspector-hint">{mode === 'direct' ? '单个 Task，直接执行' : mode === 'pipeline' ? 'Task 按 order 顺序执行' : 'LLM 动态选择 Task'}</span></InspectorGroup>
     <InspectorGroup title="Tasks" count={node.tasks.length} open={open.tasks} onToggle={() => toggle('tasks')}><div className="th-inspector-task-list">{node.tasks.map((task, index) => <button key={task.id} onClick={() => onSelectTask(task.id)} className="th-inspector-task-row"><span>{index + 1}</span><strong>{task.name || `Task ${index + 1}`}</strong><small>{task.outputFormat || 'text'}</small></button>)}</div><button className="th-inspector-add" onClick={onAddTask} disabled={mode === 'direct' && node.tasks.length >= 1}>＋ 添加 Task</button></InspectorGroup>
     <div className="th-inspector-footer"><button onClick={onEquip} className={equipped ? 'equipped' : ''}>{equipped ? '✓ 已装配' : '装配 Node'}</button><button className="danger" onClick={() => { if (confirm(`确定删除节点“${node.name}”？`)) onDelete() }}>删除</button></div>
   </aside>

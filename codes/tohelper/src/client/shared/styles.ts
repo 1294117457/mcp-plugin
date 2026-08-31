@@ -2737,6 +2737,11 @@ select[multiple] option:checked {
   background-image: radial-gradient(#cbd5e1 0.7px, transparent 0.7px);
   background-size: 18px 18px;
   touch-action: none;
+  cursor: grab;
+}
+
+.th-canvas-shell.panning {
+  cursor: grabbing;
 }
 
 .th-canvas-viewport {
@@ -3026,6 +3031,24 @@ select[multiple] option:checked {
   text-transform: uppercase;
 }
 
+.th-canvas-mode-pill.clickable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.th-canvas-mode-pill.clickable:hover {
+  background: #1d4ed8;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
+}
+
+.th-canvas-node.collapsed {
+  border-radius: 28px 28px 12px 12px;
+}
+
+.th-canvas-node.collapsed::before {
+  inset: 8px 8px 8px;
+}
+
 .th-canvas-add-task {
   position: absolute;
   right: 12px;
@@ -3239,6 +3262,20 @@ select[multiple] option:checked {
 .th-inspector-hint {
   color: #6b7280;
   font-size: 10px;
+}
+
+.th-inspector-row {
+  display: flex;
+  gap: 8px;
+}
+
+.th-inspector-row-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.th-inspector-row-flex2 {
+  flex: 2;
 }
 
 .th-inspector-checkbox {
