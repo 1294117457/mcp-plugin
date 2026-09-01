@@ -2,7 +2,6 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from '
 import { resolve } from 'node:path'
 import type { TaskConfig, NodeConfig, ConfigFile } from '../../types.js'
 import { DATA_DIR } from '../tool/config.js'
-import { loadConfigWithMigration } from './migrate.js'
 
 const CONFIG_PATH = resolve(DATA_DIR, 'config.json')
 
@@ -14,8 +13,15 @@ const DEFAULT_CONFIG: ConfigFile = {
 }
 
 export function loadConfig(): ConfigFile {
-  // Use migration logic to handle v1 → v2
-  return loadConfigWithMigration()
+  try {
+    const raw = readFileSync(CONFIG_PATH, 'utf8')
+    const parsed = JSON.parse(raw)
+    if (parsed.version === 2) return parsed
+    console.warn(`[tohelper] config version ${parsed.version} not supported, using defaults`)
+    return { ...DEFAULT_CONFIG }
+  } catch {
+    return { ...DEFAULT_CONFIG }
+  }
 }
 
 /** Re-read config.json from disk and merge into the live config object. */

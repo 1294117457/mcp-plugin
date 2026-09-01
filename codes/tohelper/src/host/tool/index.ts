@@ -130,7 +130,6 @@ export function setupToolModule(ctx: Context, tracker: AgentTracker): void {
         const schemas = agent ? ctx.tools.schemas(agent) : ctx.tools.schemas()
         const builtin: any[] = []
         const mcp: any[] = []
-        let logged = false
         for (const s of schemas) {
           const nm = (s as any).name ?? ''
           const ds = (s as any).description ?? ''
@@ -145,11 +144,6 @@ export function setupToolModule(ctx: Context, tracker: AgentTracker): void {
             catch { /* empty */ }
           }
           // Debug: log first MCP tool's schema keys
-          if (!logged && nm.startsWith('mcp__')) {
-            console.log(`[tohelper] schema keys for "${nm}":`, Object.keys(s))
-            console.log(`[tohelper] parameters type:`, typeof params, params ? 'has value' : 'null')
-            logged = true
-          }
           if (nm.startsWith('mcp__')) {
             mcp.push({ name: nm, description: ds, source: 'mcp', denied: deniedTools.has(nm), inputSchema: params, outputSchema })
           } else {

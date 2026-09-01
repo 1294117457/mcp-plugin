@@ -57,25 +57,14 @@ async function callLlm(
     ...(tools && tools.length > 0 ? { tools } : {}),
   }
 
-  console.log(`[tohelper:llm] stream: ${llm.provider}/${llm.model} | system=${system.length}chars | msgs=${messages.length} | tools=${tools?.length ?? 0}`)
-  if (tools && tools.length > 0) {
-    console.log(`[tohelper:llm] tools passed to stream:`, JSON.stringify(tools.map((t: any) => ({ name: t.name, keys: Object.keys(t) }))))
-  }
-
   const stream = (ctx as any).llm.stream(options)
 
-  let chunkCount = 0
   for await (const chunk of stream) {
-    chunkCount++
-    if (chunkCount <= 3) {
-      console.log(`[tohelper:llm] chunk #${chunkCount}: ${JSON.stringify(chunk)}`)
-    }
     assembler.push(chunk)
   }
 
   const blocks = assembler.blocks()
   const text = blocks.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
-  console.log(`[tohelper:llm] done: ${chunkCount} chunks, ${blocks.length} blocks (${blocks.map((b: any) => b.type).join(',')}) text=${text.length}chars`)
   return { blocks, text }
 }
 

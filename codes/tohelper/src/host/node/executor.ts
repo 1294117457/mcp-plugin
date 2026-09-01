@@ -84,16 +84,6 @@ export function createNodeExecutor(ctx: Context, config: ConfigFile): NodeExecut
   }
 }
 
-interface TaskLog {
-  taskId: string
-  taskName: string
-  startMs: number
-  endMs: number
-  ok: boolean
-  error?: string
-  output: string
-}
-
 /**
  * Pipeline: sequential chain — each Task receives the previous Task's output as input.
  * After all Tasks complete, the Node LLM produces a summary.
