@@ -5,6 +5,7 @@ import type { ConfigFile, NodeConfig } from '../../types.js'
 import type { NodeModule } from './index.js'
 import { readBody, json } from '../util.js'
 import { generateId, validateNodeData, saveConfigDebounced } from './config.js'
+import { validateConfig } from './validate.js'
 
 export function registerNodeRoutes(ctx: Context, config: ConfigFile, nodeModule: NodeModule, _tracker: AgentTracker): void {
   ctx.webServer.register({
@@ -125,6 +126,55 @@ export function registerNodeRoutes(ctx: Context, config: ConfigFile, nodeModule:
       } catch (e: any) {
         json(res, { ok: false, error: String(e?.message ?? e) }, 400)
       }
+    },
+  })
+
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/tohelper/node/run',
+    async handler(req: IncomingMessage, res: ServerResponse) {
+      try {
+        const body = JSON.parse(await readBody(req))
+        const { nodeId, input } = body
+
+        if (!nodeId) {
+          json(res, { ok: false, error: 'nodeId is required' }, 400)
+          return
+        }
+
+        const node = config.nodes[nodeId]
+        if (!node) {
+          json(res, { ok: false, error: 'node not found' }, 404)
+          return
+        }
+
+        // Check triggerMode
+        const triggerMode = node.triggerMode || 'both'
+        if (triggerMode === 'agent') {
+          json(res, { ok: false, error: 'This node can only be triggered by agent' }, 403)
+          return
+        }
+
+        const agent = _tracker.getAgent()
+        if (!agent) {
+          json(res, { ok: false, error: 'No active agent available' }, 503)
+          return
+        }
+
+        const result = await nodeModule.executor.run(node, input ?? { input: '' }, agent)
+        json(res, { ok: result.ok, runId: result.runId, status: result.status, result })
+      } catch (e: any) {
+        json(res, { ok: false, error: String(e?.message ?? e) }, 500)
+      }
+    },
+  })
+
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/tohelper/config/validate',
+    handler(_req: IncomingMessage, res: ServerResponse) {
+      const result = validateConfig(config)
+      json(res, result)
     },
   })
 }

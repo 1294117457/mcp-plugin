@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from '
 import { resolve } from 'node:path'
 import type { TaskConfig, NodeConfig, ConfigFile } from '../../types.js'
 import { DATA_DIR } from '../tool/config.js'
+import { loadConfigWithMigration } from './migrate.js'
 
 const CONFIG_PATH = resolve(DATA_DIR, 'config.json')
 
@@ -13,14 +14,8 @@ const DEFAULT_CONFIG: ConfigFile = {
 }
 
 export function loadConfig(): ConfigFile {
-  try {
-    const raw = readFileSync(CONFIG_PATH, 'utf8')
-    const parsed = JSON.parse(raw)
-    if (parsed.version === 2) return parsed
-    return { ...DEFAULT_CONFIG }
-  } catch {
-    return { ...DEFAULT_CONFIG }
-  }
+  // Use migration logic to handle v1 → v2
+  return loadConfigWithMigration()
 }
 
 /** Re-read config.json from disk and merge into the live config object. */
@@ -145,6 +140,16 @@ export function validateNodeData(data: any, allTaskIds: string[]): { error?: str
     if (!allTaskIds.includes(tid)) return { error: `referenced task "${tid}" does not exist` }
   }
 
+  const triggerMode = data.triggerMode || 'both'
+  if (!['agent', 'explicit', 'both'].includes(triggerMode)) {
+    return { error: 'triggerMode must be "agent", "explicit", or "both"' }
+  }
+
+  const failurePolicy = data.failurePolicy || 'fail_fast'
+  if (!['fail_fast', 'continue', 'retry_then_continue'].includes(failurePolicy)) {
+    return { error: 'failurePolicy must be "fail_fast", "continue", or "retry_then_continue"' }
+  }
+
   const node: Omit<NodeConfig, 'id' | 'createdAt'> = {
     name: data.name,
     description: data.description,
@@ -159,6 +164,9 @@ export function validateNodeData(data: any, allTaskIds: string[]): { error?: str
     tasks: data.tasks,
     inputSchema: data.inputSchema || DEFAULT_INPUT_SCHEMA,
     outputSchema: data.outputSchema || DEFAULT_OUTPUT_SCHEMA,
+    triggerMode,
+    failurePolicy,
+    ...(Array.isArray(data.aliases) && data.aliases.length > 0 ? { aliases: data.aliases } : {}),
   }
 
   return { node }

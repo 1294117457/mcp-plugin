@@ -31,6 +31,8 @@ export interface TaskConfig {
 // ===== Node 配置 =====
 
 export type NodeMode = 'pipeline' | 'loop'
+export type TriggerMode = 'agent' | 'explicit' | 'both'
+export type FailurePolicy = 'fail_fast' | 'continue' | 'retry_then_continue'
 
 /**
  * Node = 多任务编排，通过 Task ID 引用已定义的 Task。
@@ -50,6 +52,10 @@ export interface NodeConfig {
   inputSchema: Record<string, unknown>
   outputSchema: Record<string, unknown>
 
+  triggerMode?: TriggerMode
+  failurePolicy?: FailurePolicy
+  aliases?: string[]
+
   createdAt: string
   updatedAt?: string
 }
@@ -61,4 +67,94 @@ export interface ConfigFile {
   tasks: Record<string, TaskConfig>
   nodes: Record<string, NodeConfig>
   equipped: string[]
+}
+
+// ===== 执行结果 =====
+
+export type ExecutionStatus =
+  | 'success'
+  | 'failed'
+  | 'timeout'
+  | 'cancelled'
+  | 'skipped'
+
+export interface ExecutionError {
+  code: string
+  message: string
+  retryable?: boolean
+  cause?: string
+}
+
+export interface TaskResult {
+  taskId: string
+  taskName: string
+  status: ExecutionStatus
+  input?: unknown
+  output?: unknown
+  error?: ExecutionError
+  attempt: number
+  durationMs: number
+  startedAt: string
+  finishedAt: string
+}
+
+export type WorkflowStatus =
+  | 'success'
+  | 'partial_failure'
+  | 'failed'
+  | 'timeout'
+  | 'cancelled'
+
+export interface WorkflowResult {
+  ok: boolean
+  status: WorkflowStatus
+  runId: string
+  nodeId: string
+  nodeName: string
+  input?: unknown
+  output?: unknown
+  error?: ExecutionError
+  steps: TaskResult[]
+  startedAt: string
+  finishedAt: string
+}
+
+// ===== v1 配置（迁移用）=====
+
+export interface TaskConfigV1 {
+  id: string
+  name: string
+  taskPrompt: string
+  tools: string[]
+  outputFormat: string
+}
+
+export interface NodeConfigV1 {
+  id?: string
+  name: string
+  description: string
+  nodePrompt: string
+  mode: NodeMode
+  tasks: TaskConfigV1[]
+  llm: LLMSlot
+  tools: string[]
+  inputSchema: Record<string, unknown>
+  outputSchema: Record<string, unknown>
+  createdAt?: string
+  updatedAt?: string
+  canvasLayout?: unknown
+}
+
+export interface ConfigFileV1 {
+  version: 1
+  nodes: Record<string, NodeConfigV1>
+  equipped: string[]
+}
+
+export interface MigrationResult {
+  sourceVersion: 1
+  targetVersion: 2
+  nodesMigrated: number
+  tasksMigrated: number
+  warnings: string[]
 }

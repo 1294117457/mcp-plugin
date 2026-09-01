@@ -25,7 +25,14 @@ export function setupNodeModule(ctx: Context, config: ConfigFile, tracker: Agent
       parameters: node.inputSchema,
       output: {
         schema: node.outputSchema,
-        render: (_args: unknown, value: any) => [{ type: 'text', text: value?.result ?? String(value ?? '') }],
+        render: (_args: unknown, value: any) => {
+          // value is WorkflowResult
+          if (value && typeof value === 'object' && 'status' in value) {
+            const result = value as any
+            return [{ type: 'text', text: result.output ?? result.result ?? String(result) }]
+          }
+          return [{ type: 'text', text: value?.result ?? String(value ?? '') }]
+        },
       },
       async execute(args: unknown) {
         const currentAgent = tracker.getAgent()

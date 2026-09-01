@@ -1,9 +1,13 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConfigFile, NodeConfig, TaskConfig } from '../../types.js'
+import type { ConfigFile, NodeConfig, TaskConfig, WorkflowResult, TaskResult, ExecutionError } from '../../types.js'
 import { runTaskLoop, extractUserInput, callLlm } from '../task/executor.js'
 
 export interface NodeExecutor {
-  run(node: NodeConfig, args: unknown, agent?: any): Promise<{ result: string }>
+  run(node: NodeConfig, args: unknown, agent?: any): Promise<WorkflowResult>
+}
+
+function generateRunId(): string {
+  return `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 const MAX_LOOP_TURNS = 20
@@ -27,17 +31,54 @@ export function createNodeExecutor(ctx: Context, config: ConfigFile): NodeExecut
 
   return {
     async run(node, args, agent) {
-      console.log(`[tohelper:node] ===== Node "${node.name}" START | mode=${node.mode} =====`)
+      const runId = generateRunId()
+      const startedAt = new Date().toISOString()
+      console.log(`[tohelper:node] ===== Node "${node.name}" START | runId=${runId} | mode=${node.mode} =====`)
+      
       try {
-        let result: { result: string }
-        if (node.mode === 'pipeline') result = await runPipeline(ctx, node, resolveTasks(node), args, agent)
-        else if (node.mode === 'loop') result = await runLoop(ctx, node, resolveTasks(node), args, agent)
-        else result = { result: `[Error] Unknown mode: ${node.mode}` }
-        console.log(`[tohelper:node] ===== Node "${node.name}" END (${result.result.length} chars) =====`)
+        let result: WorkflowResult
+        if (node.mode === 'pipeline') {
+          result = await runPipeline(ctx, node, resolveTasks(node), args, agent, runId, startedAt)
+        } else if (node.mode === 'loop') {
+          result = await runLoop(ctx, node, resolveTasks(node), args, agent, runId, startedAt)
+        } else {
+          const error: ExecutionError = {
+            code: 'INVALID_MODE',
+            message: `Unknown mode: ${node.mode}`,
+          }
+          result = {
+            ok: false,
+            status: 'failed',
+            runId,
+            nodeId: node.id,
+            nodeName: node.name,
+            input: args,
+            error,
+            steps: [],
+            startedAt,
+            finishedAt: new Date().toISOString(),
+          }
+        }
+        console.log(`[tohelper:node] ===== Node "${node.name}" END | status=${result.status} =====`)
         return result
       } catch (e: any) {
         console.error(`[tohelper:node] ===== Node "${node.name}" ERROR: ${e?.message} =====`)
-        return { result: `[Node error] ${e?.message ?? String(e)}` }
+        const error: ExecutionError = {
+          code: 'NODE_EXECUTION_ERROR',
+          message: e?.message ?? String(e),
+        }
+        return {
+          ok: false,
+          status: 'failed',
+          runId,
+          nodeId: node.id,
+          nodeName: node.name,
+          input: args,
+          error,
+          steps: [],
+          startedAt,
+          finishedAt: new Date().toISOString(),
+        }
       }
     },
   }
@@ -62,44 +103,153 @@ async function runPipeline(
   node: NodeConfig,
   tasks: TaskConfig[],
   args: unknown,
-  agent?: any,
-): Promise<{ result: string }> {
+  agent: any,
+  runId: string,
+  startedAt: string,
+): Promise<WorkflowResult> {
   if (tasks.length === 0) {
-    return { result: '[Error] Pipeline requires at least one task' }
-  }
-
-  const logs: TaskLog[] = []
-  const originalInput = extractUserInput(args)
-  let chainInput = originalInput
-
-  for (const task of tasks) {
-    const start = Date.now()
-    console.log(`[tohelper:node] pipeline → "${task.name}" | input (${chainInput.length} chars)`)
-    try {
-      const output = await runTaskLoop(ctx, task, chainInput, agent)
-      console.log(`[tohelper:node] pipeline → "${task.name}" done (${Date.now() - start}ms) | output (${output.length} chars)`)
-      logs.push({ taskId: task.id, taskName: task.name, startMs: start, endMs: Date.now(), ok: true, output })
-      chainInput = output
-    } catch (e: any) {
-      logs.push({ taskId: task.id, taskName: task.name, startMs: start, endMs: Date.now(), ok: false, error: e?.message ?? String(e), output: '' })
-      const logText = logs.map(l => `  ${l.taskName}: ${l.ok ? 'OK' : 'FAILED'} (${l.endMs - l.startMs}ms)${l.error ? ` - ${l.error}` : ''}`).join('\n')
-      return { result: `[Pipeline error at ${task.name}] ${e?.message}\n\nLog:\n${logText}` }
+    const error: ExecutionError = {
+      code: 'NO_TASKS',
+      message: 'Pipeline requires at least one task',
+    }
+    return {
+      ok: false,
+      status: 'failed',
+      runId,
+      nodeId: node.id,
+      nodeName: node.name,
+      input: args,
+      error,
+      steps: [],
+      startedAt,
+      finishedAt: new Date().toISOString(),
     }
   }
 
-  const taskOutputs = logs
-    .map((l, i) => `[Task ${i + 1}: ${l.taskName}]\n${l.output}`)
-    .join('\n\n')
+  const steps: TaskResult[] = []
+  const originalInput = extractUserInput(args)
+  let chainInput = originalInput
+  const failurePolicy = node.failurePolicy || 'fail_fast'
+  let hasFailure = false
 
-  if (node.nodePrompt) {
-    const summaryInput = `用户请求:\n${originalInput}\n\n各 Task 执行结果:\n\n${taskOutputs}\n\n请汇总以上结果。`
-    const { text } = await callLlm(ctx, node.llm, node.nodePrompt, [
-      { role: 'user', content: [{ type: 'text', text: summaryInput }] },
-    ])
-    return { result: text || taskOutputs }
+  for (const task of tasks) {
+    const taskStartedAt = new Date().toISOString()
+    const start = Date.now()
+    console.log(`[tohelper:node] pipeline → "${task.name}" | input (${chainInput.length} chars)`)
+    
+    try {
+      const output = await runTaskLoop(ctx, task, chainInput, agent)
+      const end = Date.now()
+      console.log(`[tohelper:node] pipeline → "${task.name}" done (${end - start}ms) | output (${output.length} chars)`)
+      
+      const taskResult: TaskResult = {
+        taskId: task.id,
+        taskName: task.name,
+        status: 'success',
+        input: chainInput,
+        output,
+        attempt: 1,
+        durationMs: end - start,
+        startedAt: taskStartedAt,
+        finishedAt: new Date().toISOString(),
+      }
+      steps.push(taskResult)
+      chainInput = output
+    } catch (e: any) {
+      const end = Date.now()
+      const error: ExecutionError = {
+        code: 'TASK_EXECUTION_ERROR',
+        message: e?.message ?? String(e),
+        retryable: false,
+      }
+      
+      const taskResult: TaskResult = {
+        taskId: task.id,
+        taskName: task.name,
+        status: 'failed',
+        input: chainInput,
+        error,
+        attempt: 1,
+        durationMs: end - start,
+        startedAt: taskStartedAt,
+        finishedAt: new Date().toISOString(),
+      }
+      steps.push(taskResult)
+      hasFailure = true
+      
+      if (failurePolicy === 'fail_fast') {
+        // Mark remaining tasks as skipped
+        const remainingIndex = tasks.indexOf(task) + 1
+        for (let i = remainingIndex; i < tasks.length; i++) {
+          const skippedTask = tasks[i]
+          const now = new Date().toISOString()
+          steps.push({
+            taskId: skippedTask.id,
+            taskName: skippedTask.name,
+            status: 'skipped',
+            attempt: 0,
+            durationMs: 0,
+            startedAt: now,
+            finishedAt: now,
+          })
+        }
+        
+        return {
+          ok: false,
+          status: 'failed',
+          runId,
+          nodeId: node.id,
+          nodeName: node.name,
+          input: args,
+          error,
+          steps,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+        }
+      } else if (failurePolicy === 'continue') {
+        // Continue with empty output
+        chainInput = ''
+        continue
+      }
+    }
   }
 
-  return { result: chainInput }
+  // Generate summary
+  const taskOutputs = steps
+    .filter(s => s.status === 'success')
+    .map((s, i) => `[Task ${i + 1}: ${s.taskName}]\n${s.output}`)
+    .join('\n\n')
+
+  let finalOutput = chainInput
+
+  if (node.nodePrompt && steps.some(s => s.status === 'success')) {
+    try {
+      const summaryInput = `用户请求:\n${originalInput}\n\n各 Task 执行结果:\n\n${taskOutputs}\n\n请汇总以上结果。`
+      const { text } = await callLlm(ctx, node.llm, node.nodePrompt, [
+        { role: 'user', content: [{ type: 'text', text: summaryInput }] },
+      ])
+      finalOutput = text || taskOutputs
+    } catch (e: any) {
+      console.error(`[tohelper:node] pipeline summary failed: ${e?.message}`)
+      // Use last successful output as fallback
+      finalOutput = taskOutputs || chainInput
+    }
+  }
+
+  const status = hasFailure ? 'partial_failure' : 'success'
+
+  return {
+    ok: !hasFailure,
+    status,
+    runId,
+    nodeId: node.id,
+    nodeName: node.name,
+    input: args,
+    output: finalOutput,
+    steps,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+  }
 }
 
 /**
@@ -134,15 +284,32 @@ async function runLoop(
   node: NodeConfig,
   tasks: TaskConfig[],
   args: unknown,
-  agent?: any,
-): Promise<{ result: string }> {
+  agent: any,
+  runId: string,
+  startedAt: string,
+): Promise<WorkflowResult> {
   if (tasks.length === 0) {
-    return { result: '[Error] Loop requires at least one task' }
+    const error: ExecutionError = {
+      code: 'NO_TASKS',
+      message: 'Loop requires at least one task',
+    }
+    return {
+      ok: false,
+      status: 'failed',
+      runId,
+      nodeId: node.id,
+      nodeName: node.name,
+      input: args,
+      error,
+      steps: [],
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    }
   }
 
   const taskMap = Object.fromEntries(tasks.map(t => [`task_${t.name}`, t]))
   const userInput = extractUserInput(args)
-  const collectedResults: { taskName: string; output: string }[] = []
+  const steps: TaskResult[] = []
   const completedNames = new Set<string>()
 
   for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
@@ -154,8 +321,11 @@ async function runLoop(
     }
 
     let promptText = userInput
-    if (collectedResults.length > 0) {
-      const resultsSummary = collectedResults.map(r => `[${r.taskName} 已完成]\n${r.output}`).join('\n\n')
+    if (steps.length > 0) {
+      const resultsSummary = steps
+        .filter(s => s.status === 'success')
+        .map(s => `[${s.taskName} 已完成]\n${s.output}`)
+        .join('\n\n')
       promptText = `${userInput}\n\n以下任务已完成:\n${resultsSummary}\n\n请继续执行剩余的任务。`
     }
 
@@ -182,33 +352,99 @@ async function runLoop(
       }
 
       const taskInput = callArgs.input ?? userInput
+      const taskStartedAt = new Date().toISOString()
+      const start = Date.now()
       console.log(`[tohelper:node] loop turn ${turn + 1} | dispatching task "${task.name}" | input (${taskInput.length} chars)`)
 
       try {
         const taskResult = await runTaskLoop(ctx, task, taskInput, agent)
+        const end = Date.now()
         console.log(`[tohelper:node] loop turn ${turn + 1} | task "${task.name}" done (${taskResult.length} chars)`)
-        collectedResults.push({ taskName: task.name, output: taskResult })
+        
+        steps.push({
+          taskId: task.id,
+          taskName: task.name,
+          status: 'success',
+          input: taskInput,
+          output: taskResult,
+          attempt: 1,
+          durationMs: end - start,
+          startedAt: taskStartedAt,
+          finishedAt: new Date().toISOString(),
+        })
         completedNames.add(task.name)
       } catch (e: any) {
-        const errText = `[Task error] ${e?.message ?? String(e)}`
-        console.error(`[tohelper:node] loop turn ${turn + 1} | task "${task.name}" failed: ${errText}`)
-        collectedResults.push({ taskName: task.name, output: errText })
+        const end = Date.now()
+        const error: ExecutionError = {
+          code: 'TASK_EXECUTION_ERROR',
+          message: e?.message ?? String(e),
+          retryable: false,
+        }
+        console.error(`[tohelper:node] loop turn ${turn + 1} | task "${task.name}" failed: ${error.message}`)
+        
+        steps.push({
+          taskId: task.id,
+          taskName: task.name,
+          status: 'failed',
+          input: taskInput,
+          error,
+          attempt: 1,
+          durationMs: end - start,
+          startedAt: taskStartedAt,
+          finishedAt: new Date().toISOString(),
+        })
         completedNames.add(task.name)
       }
     }
   }
 
-  if (collectedResults.length === 0) {
-    return { result: '(no output)' }
+  if (steps.length === 0) {
+    return {
+      ok: true,
+      status: 'success',
+      runId,
+      nodeId: node.id,
+      nodeName: node.name,
+      input: args,
+      output: '(no output)',
+      steps: [],
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    }
   }
 
-  if (node.nodePrompt && collectedResults.length > 1) {
-    const summaryInput = `用户请求:\n${userInput}\n\n各任务执行结果:\n\n${collectedResults.map(r => `[${r.taskName}]\n${r.output}`).join('\n\n')}\n\n请汇总以上结果。`
-    const { text } = await callLlm(ctx, node.llm, node.nodePrompt, [
-      { role: 'user', content: [{ type: 'text', text: summaryInput }] },
-    ])
-    if (text) return { result: text }
+  const hasFailure = steps.some(s => s.status === 'failed')
+  const successSteps = steps.filter(s => s.status === 'success')
+
+  let finalOutput: string
+
+  if (node.nodePrompt && successSteps.length > 1) {
+    try {
+      const summaryInput = `用户请求:\n${userInput}\n\n各任务执行结果:\n\n${successSteps.map(s => `[${s.taskName}]\n${s.output}`).join('\n\n')}\n\n请汇总以上结果。`
+      const { text } = await callLlm(ctx, node.llm, node.nodePrompt, [
+        { role: 'user', content: [{ type: 'text', text: summaryInput }] },
+      ])
+      finalOutput = text || successSteps.map(s => `[${s.taskName}]\n${s.output}`).join('\n\n')
+    } catch (e: any) {
+      console.error(`[tohelper:node] loop summary failed: ${e?.message}`)
+      finalOutput = successSteps.map(s => `[${s.taskName}]\n${s.output}`).join('\n\n')
+    }
+  } else {
+    finalOutput = successSteps.map(s => `[${s.taskName}]\n${s.output}`).join('\n\n')
   }
 
-  return { result: collectedResults.map(r => `[${r.taskName}]\n${r.output}`).join('\n\n') }
+  const status = hasFailure ? 'partial_failure' : 'success'
+
+  return {
+    ok: !hasFailure,
+    status,
+    runId,
+    nodeId: node.id,
+    nodeName: node.name,
+    input: args,
+    output: finalOutput,
+    steps,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+  }
 }
