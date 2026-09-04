@@ -37,7 +37,8 @@ export function setupNodeModule(ctx: Context, config: ConfigFile, tracker: Agent
       async execute(args: unknown) {
         const currentAgent = tracker.getAgent()
         if (!currentAgent) throw new Error('no active agent for node execution')
-        return executor.run(node, args, currentAgent)
+        const workflowResult = await executor.run(node, args, currentAgent)
+        return { result: workflowResult.output ?? workflowResult.error?.message ?? '(no output)' }
       },
     }
   }
