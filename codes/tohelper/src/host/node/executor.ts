@@ -85,6 +85,21 @@ export function createNodeExecutor(ctx: Context, config: ConfigFile): NodeExecut
 }
 
 /**
+ * Resolve the first task's input in pipeline mode based on firstTaskInput strategy.
+ * - 'self' (default): empty string — task is self-contained, not polluted by node user input
+ * - 'user': use node user input (backward compatible)
+ */
+function resolveFirstTaskInput(node: NodeConfig, userInput: string): string {
+  if (node.firstTaskInput === 'user') {
+    console.log(`[tohelper:node] pipeline firstTaskInput='user' → using node user input (${userInput.length} chars)`)
+    return userInput
+  }
+  // Default: 'self' — task is self-contained
+  console.log(`[tohelper:node] pipeline firstTaskInput='self' → task self-contained (node input=${userInput.length} chars, ignored)`)
+  return ''
+}
+
+/**
  * Pipeline: sequential chain — each Task receives the previous Task's output as input.
  * After all Tasks complete, the Node LLM produces a summary.
  */
@@ -118,7 +133,8 @@ async function runPipeline(
 
   const steps: TaskResult[] = []
   const originalInput = extractUserInput(args)
-  let chainInput = originalInput
+  // First task input: resolved by strategy, not polluted from node user input
+  let chainInput = resolveFirstTaskInput(node, originalInput)
   const failurePolicy = node.failurePolicy || 'fail_fast'
   let hasFailure = false
 
@@ -214,7 +230,7 @@ async function runPipeline(
 
   if (node.nodePrompt && steps.some(s => s.status === 'success')) {
     try {
-      const summaryInput = `用户请求:\n${originalInput}\n\n各 Task 执行结果:\n\n${taskOutputs}\n\n请汇总以上结果。`
+      const summaryInput = `用户请求:\n${originalInput || '(空)'}\n\n各 Task 执行结果:\n\n${taskOutputs}\n\n请汇总以上结果。`
       const { text } = await callLlm(ctx, node.llm, node.nodePrompt, [
         { role: 'user', content: [{ type: 'text', text: summaryInput }] },
       ])
@@ -244,30 +260,135 @@ async function runPipeline(
 
 /**
  * Build virtual ToolSchemas for a single-turn LLM dispatch call.
- * Only includes tasks not yet completed.
+ * Uses stable Task ID (not task name) for the tool name.
+ * Includes explicit workflow_finish tool.
+ *
+ * Tool descriptions include the full taskPrompt so that the orchestrating LLM
+ * can make informed decisions about which task to call with what input.
  */
-function buildLoopTools(tasks: TaskConfig[], completedNames: Set<string>): any[] {
-  const taskTools = tasks
-    .filter(t => !completedNames.has(t.name))
+function buildLoopTools(tasks: TaskConfig[], completedIds: Set<string>): any[] {
+  const tools = tasks
+    .filter(t => !completedIds.has(t.id))
     .map(t => ({
-      name: `task_${t.name}`,
-      description: `执行任务: ${t.description}`,
+      // Use Task ID for stability — name can change without breaking Loop
+      name: `task_${t.id}`,
+      description: `[${t.id}] ${t.description || t.taskPrompt}\n\n任务说明: ${t.taskPrompt}`,
       parameters: {
         type: 'object',
         properties: {
-          input: { type: 'string', description: '传递给该任务的输入内容' },
+          input: {
+            type: 'string',
+            description: `传递给该任务的附加请求（可选）。task 是自包含的，无 input 时会按任务说明自主完成。${t.taskPrompt}`,
+          },
         },
-        required: ['input'],
+        required: [],
       },
     }))
 
-  return taskTools
+  // Explicit finish tool — LLM must call this to confirm completion
+  tools.push({
+    name: 'workflow_finish',
+    description: '当前所有必要任务已完成，输出最终结果。必须提供 answer 字段作为最终输出。',
+    parameters: {
+      type: 'object',
+      properties: {
+        answer: { type: 'string', description: '最终输出/回答内容' },
+        reason: { type: 'string', description: '为什么现在完成？已完成哪些任务？' },
+      },
+      required: ['answer'],
+    },
+  })
+
+  return tools
+}
+
+/**
+ * Parse a LoopDecision from LLM tool calls.
+ * Supports both explicit protocol (action field) and legacy tool names.
+ */
+interface LoopDecision {
+  action: 'run_task' | 'retry_task' | 'finish'
+  taskId?: string
+  input?: string
+  answer?: string
+  reason?: string
+  rawCallName: string
+}
+
+function parseLoopDecision(call: any, taskMap: Record<string, TaskConfig>): LoopDecision {
+  const callName = call.name || ''
+  const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : (call.arguments ?? {})
+
+  if (callName === 'workflow_finish') {
+    return {
+      action: 'finish',
+      answer: args.answer || '',
+      reason: args.reason,
+      rawCallName: callName,
+    }
+  }
+
+  // Support explicit protocol: task_<action>_<taskId>
+  const explicitMatch = callName.match(/^task_(run_task|retry_task)_(.+)$/)
+  if (explicitMatch) {
+    const [, action, taskId] = explicitMatch
+    return {
+      action: action === 'run_task' ? 'run_task' : 'retry_task',
+      taskId,
+      input: args.input,
+      reason: args.reason,
+      rawCallName: callName,
+    }
+  }
+
+  // Legacy support: task_<taskId> or task_<taskName>
+  const legacyMatch = callName.match(/^task_(.+)$/)
+  if (legacyMatch) {
+    const identifier = legacyMatch[1]
+    // Prefer Task ID match (stable), fall back to name match (for migration)
+    const byId = taskMap[identifier]
+    const byName = Object.values(taskMap).find(t => t.name === identifier)
+    const resolvedTask = byId || byName
+    return {
+      action: 'run_task',
+      taskId: resolvedTask?.id,
+      input: args.input,
+      rawCallName: callName,
+    }
+  }
+
+  // Unknown tool — report it as an error decision
+  return {
+    action: 'run_task',
+    taskId: undefined,
+    input: args.input,
+    rawCallName: callName,
+  }
+}
+
+/**
+ * Validate a taskId against the allowed task list.
+ * Rejects unknown or unauthorized task IDs.
+ */
+function validateTaskId(taskId: string | undefined, taskMap: Record<string, TaskConfig>, completedIds: Set<string>): { valid: boolean; task?: TaskConfig; reason?: string } {
+  if (!taskId) return { valid: false, reason: 'no taskId provided' }
+  const task = taskMap[taskId]
+  if (!task) return { valid: false, reason: `unknown taskId: ${taskId}` }
+  if (completedIds.has(taskId)) return { valid: false, reason: `task "${task.name}" already completed` }
+  return { valid: true, task }
 }
 
 /**
  * Loop: each turn is a FRESH single-message LLM call with tools.
  * Previous results are included in the user prompt text, avoiding
  * multi-turn tool-call/tool-result messages that crash some adapters.
+ *
+ * Decision protocol:
+ * - action='finish': LLM explicitly signals completion with final answer
+ * - action='run_task': execute the specified Task with given input
+ * - action='retry_task': re-execute a task (with same or modified input)
+ *
+ * Tool names use stable Task ID (not task name) for reliability.
  */
 async function runLoop(
   ctx: Context,
@@ -297,93 +418,199 @@ async function runLoop(
     }
   }
 
-  const taskMap = Object.fromEntries(tasks.map(t => [`task_${t.name}`, t]))
+  // Build stable task map by ID (not name)
+  const taskMap: Record<string, TaskConfig> = Object.fromEntries(tasks.map(t => [t.id, t]))
   const userInput = extractUserInput(args)
   const steps: TaskResult[] = []
-  const completedNames = new Set<string>()
+  const completedIds = new Set<string>()
+  // Track decisions for stalled detection
+  const recentDecisions: string[] = []
 
   for (let turn = 0; turn < MAX_LOOP_TURNS; turn++) {
-    const loopTools = buildLoopTools(tasks, completedNames)
+    const loopTools = buildLoopTools(tasks, completedIds)
 
-    if (loopTools.length === 0) {
-      console.log(`[tohelper:node] loop turn ${turn + 1} | all tasks completed`)
+    if (loopTools.length <= 1) {
+      // Only workflow_finish left — all tasks done
+      console.log(`[tohelper:node] loop turn ${turn + 1} | all tasks completed (${completedIds.size}/${tasks.length})`)
       break
     }
 
+    // Build context with previous results
     let promptText = userInput
     if (steps.length > 0) {
       const resultsSummary = steps
         .filter(s => s.status === 'success')
-        .map(s => `[${s.taskName} 已完成]\n${s.output}`)
+        .map(s => `[${s.taskName}] 已完成\n${s.output}`)
         .join('\n\n')
-      promptText = `${userInput}\n\n以下任务已完成:\n${resultsSummary}\n\n请继续执行剩余的任务。`
+      const failedSummary = steps
+        .filter(s => s.status === 'failed')
+        .map(s => `[${s.taskName}] 失败: ${s.error?.message}`)
+        .join('\n\n')
+      const remaining = tasks.filter(t => !completedIds.has(t.id)).map(t => `  - ${t.name} (${t.id})`).join('\n')
+      promptText = `${userInput}\n\n已完成任务:\n${resultsSummary || '(无)'}\n\n失败任务:\n${failedSummary || '(无)'}\n\n剩余可执行任务:\n${remaining}\n\n请选择下一个要执行的任务，或调用 workflow_finish 结束。`
     }
 
-    const system = `${node.nodePrompt}\n\n你是一个任务编排器。通过调用工具来执行任务。每次选择一个最合适的任务工具并调用它。`
+    // System prompt: clearly separate "orchestration reference" from "task input"
+    // node 用户输入仅供参考，不直接污染 task
+    const system = `${node.nodePrompt}
+
+=== 编排规则 ===
+1. 每次只选一个 task 调用；所有 task 完成后必须调用 workflow_finish 结束
+2. [node 用户输入] 仅作为你编排决策的参考，不要直接作为 task 的 input
+3. task 的 input 由你根据 task 描述判断：
+   - 无 input 时：task 自包含，会按任务说明自主完成
+   - 有 input 时：作为附加请求传给 task
+4. 已完成的任务不能重复执行
+5. 如果无法完成任务，调用 workflow_finish 并说明原因
+
+[node 用户输入]: ${userInput || '(空)'}
+
+你必须为每个 task 显式指定 input（可以为空字符串表示无附加请求）。`
+
     const messages = [
       { role: 'user', content: [{ type: 'text', text: promptText }] },
     ]
 
-    console.log(`[tohelper:node] loop turn ${turn + 1}/${MAX_LOOP_TURNS} | calling LLM ${node.llm.provider}/${node.llm.model} | remaining tasks=${loopTools.length}`)
+    console.log(`[tohelper:node] loop turn ${turn + 1}/${MAX_LOOP_TURNS} | calling LLM ${node.llm.provider}/${node.llm.model} | remaining=${loopTools.length - 1}`)
     const { blocks, text } = await callLlm(ctx, node.llm, system, messages, loopTools)
     const toolCalls = blocks.filter((b: any) => b.type === 'tool-call')
 
     if (toolCalls.length === 0) {
-      console.log(`[tohelper:node] loop turn ${turn + 1} | no tool calls, text response (${text.length} chars)`)
+      // No tool calls — check for explicit finish text
+      const finishHint = text?.trim()
+      console.log(`[tohelper:node] loop turn ${turn + 1} | no tool calls, text (${text.length} chars): "${text.slice(0, 100)}"`)
+      // Implicit finish: use LLM text as answer
+      steps.push({
+        taskId: '__finish__',
+        taskName: '__finish__',
+        status: 'success',
+        input: text,
+        output: text,
+        attempt: 1,
+        durationMs: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      })
       break
     }
 
     for (const call of toolCalls) {
-      const callArgs = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : (call.arguments ?? {})
-      const task = taskMap[call.name]
-      if (!task) {
-        console.warn(`[tohelper:node] loop turn ${turn + 1} | unknown tool call: ${call.name}`)
-        continue
+      const decision = parseLoopDecision(call, taskMap)
+      const decisionKey = `${decision.action}:${decision.taskId || ''}:${decision.input || ''}`
+      recentDecisions.push(decisionKey)
+      // Keep only last 4 decisions for stalled detection
+      if (recentDecisions.length > 4) recentDecisions.shift()
+
+      if (decision.action === 'finish') {
+        console.log(`[tohelper:node] loop turn ${turn + 1} | LLM requested finish: "${decision.answer?.slice(0, 80)}"`)
+        steps.push({
+          taskId: '__finish__',
+          taskName: '__finish__',
+          status: 'success',
+          input: text,
+          output: decision.answer,
+          attempt: 1,
+          durationMs: 0,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        })
+        break
       }
 
-      const taskInput = callArgs.input ?? userInput
-      const taskStartedAt = new Date().toISOString()
-      const start = Date.now()
-      console.log(`[tohelper:node] loop turn ${turn + 1} | dispatching task "${task.name}" | input (${taskInput.length} chars)`)
+      if (decision.action === 'run_task' || decision.action === 'retry_task') {
+        const validation = validateTaskId(decision.taskId, taskMap, completedIds)
 
-      try {
-        const taskResult = await runTaskLoop(ctx, task, taskInput, agent)
-        const end = Date.now()
-        console.log(`[tohelper:node] loop turn ${turn + 1} | task "${task.name}" done (${taskResult.length} chars)`)
-        
-        steps.push({
-          taskId: task.id,
-          taskName: task.name,
-          status: 'success',
-          input: taskInput,
-          output: taskResult,
-          attempt: 1,
-          durationMs: end - start,
-          startedAt: taskStartedAt,
-          finishedAt: new Date().toISOString(),
-        })
-        completedNames.add(task.name)
-      } catch (e: any) {
-        const end = Date.now()
-        const error: ExecutionError = {
-          code: 'TASK_EXECUTION_ERROR',
-          message: e?.message ?? String(e),
-          retryable: false,
+        if (!validation.valid) {
+          console.warn(`[tohelper:node] loop turn ${turn + 1} | invalid task "${decision.taskId}": ${validation.reason}`)
+          // Don't count invalid decisions as task failures — just skip
+          steps.push({
+            taskId: decision.taskId || '__unknown__',
+            taskName: decision.taskId || validation.reason || '__unknown__',
+            status: 'failed',
+            input: decision.input,
+            error: { code: 'INVALID_TASK', message: validation.reason || 'invalid task', retryable: false },
+            attempt: 1,
+            durationMs: 0,
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          })
+          // Don't mark as completed — allow retry with correct ID
+          continue
         }
-        console.error(`[tohelper:node] loop turn ${turn + 1} | task "${task.name}" failed: ${error.message}`)
-        
-        steps.push({
-          taskId: task.id,
-          taskName: task.name,
-          status: 'failed',
-          input: taskInput,
-          error,
-          attempt: 1,
-          durationMs: end - start,
-          startedAt: taskStartedAt,
-          finishedAt: new Date().toISOString(),
-        })
-        completedNames.add(task.name)
+
+        const task = validation.task!
+        const taskInput = decision.input ?? userInput
+        const taskStartedAt = new Date().toISOString()
+        const start = Date.now()
+
+        // Stall detection: if same decision repeats, force finish
+        const stallCandidates = recentDecisions.filter(d => d === decisionKey)
+        if (stallCandidates.length >= 3) {
+          console.warn(`[tohelper:node] loop turn ${turn + 1} | stalled: repeated decision "${decisionKey}", forcing finish`)
+          steps.push({
+            taskId: '__stalled__',
+            taskName: '__stalled__',
+            status: 'failed',
+            input: taskInput,
+            error: { code: 'STALLED', message: `Loop stalled: repeated decision "${decisionKey}"`, retryable: false },
+            attempt: 1,
+            durationMs: 0,
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          })
+          break
+        }
+
+        console.log(`[tohelper:node] loop turn ${turn + 1} | dispatching "${task.name}" (${task.id}) | input (${taskInput.length} chars)`)
+
+        try {
+          const output = await runTaskLoop(ctx, task, taskInput, agent)
+          const end = Date.now()
+          console.log(`[tohelper:node] loop turn ${turn + 1} | "${task.name}" done (${end - start}ms)`)
+
+          steps.push({
+            taskId: task.id,
+            taskName: task.name,
+            status: 'success',
+            input: taskInput,
+            output,
+            attempt: 1,
+            durationMs: end - start,
+            startedAt: taskStartedAt,
+            finishedAt: new Date().toISOString(),
+          })
+          completedIds.add(task.id)
+        } catch (e: any) {
+          const end = Date.now()
+          const errMsg = e?.message ?? String(e)
+          console.error(`[tohelper:node] loop turn ${turn + 1} | "${task.name}" failed: ${errMsg}`)
+
+          steps.push({
+            taskId: task.id,
+            taskName: task.name,
+            status: 'failed',
+            input: taskInput,
+            error: { code: 'TASK_EXECUTION_ERROR', message: errMsg, retryable: true },
+            attempt: 1,
+            durationMs: end - start,
+            startedAt: taskStartedAt,
+            finishedAt: new Date().toISOString(),
+          })
+          completedIds.add(task.id) // Mark as completed even if failed (don't retry infinitely)
+        }
+      }
+    }
+
+    // Check if we've been asked to finish
+    const hasFinish = steps.some(s => s.taskName === '__finish__' || s.taskId === '__stalled__')
+    if (hasFinish) break
+
+    // Check stall: all recent decisions are identical
+    if (recentDecisions.length >= 3) {
+      const allSame = recentDecisions.every(d => d === recentDecisions[0])
+      if (allSame) {
+        console.warn(`[tohelper:node] loop turn ${turn + 1} | stalled: all recent decisions identical`)
+        break
       }
     }
   }
@@ -404,11 +631,20 @@ async function runLoop(
   }
 
   const hasFailure = steps.some(s => s.status === 'failed')
-  const successSteps = steps.filter(s => s.status === 'success')
+  const hasFinish = steps.some(s => s.taskId === '__finish__' || s.taskId === '__stalled__')
+  const successSteps = steps.filter(s => s.status === 'success' && s.taskId !== '__finish__' && s.taskId !== '__stalled__')
 
   let finalOutput: string
 
-  if (node.nodePrompt && successSteps.length > 1) {
+  // If LLM explicitly finished, use its answer
+  const finishStep = steps.find(s => s.taskId === '__finish__')
+  if (finishStep?.output) {
+    finalOutput = String(finishStep.output)
+  } else if (hasFinish && steps.find(s => s.taskId === '__stalled__')) {
+    const stalled = steps.find(s => s.taskId === '__stalled__')
+    finalOutput = `⚠️ Loop 停滞未能完成。\n\n已完成 (${successSteps.length}):\n${successSteps.map(s => `  ✓ ${s.taskName}`).join('\n')}\n\n错误: ${stalled?.error?.message || 'repeated identical decisions'}`
+  } else if (successSteps.length > 1 && node.nodePrompt) {
+    // Multi-step summary
     try {
       const summaryInput = `用户请求:\n${userInput}\n\n各任务执行结果:\n\n${successSteps.map(s => `[${s.taskName}]\n${s.output}`).join('\n\n')}\n\n请汇总以上结果。`
       const { text } = await callLlm(ctx, node.llm, node.nodePrompt, [
@@ -423,10 +659,12 @@ async function runLoop(
     finalOutput = successSteps.map(s => `[${s.taskName}]\n${s.output}`).join('\n\n')
   }
 
-  const status = hasFailure ? 'partial_failure' : 'success'
+  const status = hasFailure && !hasFinish ? 'partial_failure'
+    : hasFinish && successSteps.length === 0 ? 'failed'
+    : 'success'
 
   return {
-    ok: !hasFailure,
+    ok: !hasFailure || hasFinish,
     status,
     runId,
     nodeId: node.id,

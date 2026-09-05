@@ -17,7 +17,7 @@ export function setupTaskModule(ctx: Context, config: ConfigFile, tracker: Agent
   function buildToolDef(task: ConfigFile['tasks'][string]) {
     return {
       name: task.name,
-      description: task.description,
+      description: task.description || task.taskPrompt,
       parameters: task.inputSchema,
       output: {
         schema: task.outputSchema,

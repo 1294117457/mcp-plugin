@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { NodeConfig, NodeMode, TaskConfig } from '../../types'
+import type { NodeConfig, NodeMode, TaskConfig, WorkflowResult } from '../../types'
 import type { LLMOption } from '../api'
 import { taskApi } from '../api'
+import { nodeApi } from '../api'
 
 interface Props {
   nodes: NodeConfig[]
@@ -30,6 +31,13 @@ const DEFAULT_NODE_H = 240
 
 function clamp(v: number, min: number, max: number) { return Math.max(min, Math.min(max, v)) }
 
+interface RunState {
+  running: boolean
+  result: WorkflowResult | null
+  error: string
+  input: string
+}
+
 export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLMs, loading, onSave, onDelete, onEquip, equippedNodeIds }: Props) {
   const [nodes, setNodes] = useState<NodeConfig[]>(sourceNodes)
   const [allTasks, setAllTasks] = useState<TaskConfig[]>([])
@@ -40,6 +48,12 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
   const [drag, setDrag] = useState<{ nodeId?: string; startX: number; startY: number; origX: number; origY: number; mode: 'move' | 'pan' } | null>(null)
   const [error, setError] = useState('')
   const canvasRef = useRef<HTMLDivElement>(null)
+  // Run states per node
+  const [runStates, setRunStates] = useState<Record<string, RunState>>({})
+  const [runModalNode, setRunModalNode] = useState<NodeConfig | null>(null)
+  const [runModalInput, setRunModalInput] = useState('')
+  // Result viewer modal
+  const [resultModal, setResultModal] = useState<{ node: NodeConfig; result: WorkflowResult } | null>(null)
 
   useEffect(() => {
     setNodes(sourceNodes)
@@ -73,8 +87,9 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
       id, name: 'new_node', description: '', mode: 'pipeline',
       nodePrompt: '', llm: { provider: 'deepseek-official', model: 'deepseek-chat', temperature: 0.7, maxTokens: 2000 },
       tasks: [],
-      inputSchema: { type: 'object', properties: { input: { type: 'string', description: '输入文本' } }, required: ['input'] },
+      inputSchema: { type: 'object', properties: { input: { type: 'string', description: '附加请求（可选）' } }, required: [] },
       outputSchema: { type: 'object', properties: { result: { type: 'string', description: '输出结果' } }, required: ['result'] },
+      firstTaskInput: 'self',
       createdAt: new Date().toISOString(),
     }
     setNodes(cur => [...cur, node])
@@ -129,6 +144,54 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
     setViewport(cur => ({ ...cur, zoom: clamp(cur.zoom - e.deltaY * 0.001, MIN_ZOOM, MAX_ZOOM) }))
   }, [])
 
+  const handleRun = useCallback(async (nodeId: string, input: string) => {
+    setRunStates(prev => ({ ...prev, [nodeId]: { running: true, result: null, error: '', input } }))
+    try {
+      const res = await nodeApi.run(nodeId, input)
+      if (res.ok && res.result) {
+        const result = (res.result as any) as WorkflowResult
+        setRunStates(prev => ({
+          ...prev,
+          [nodeId]: { running: false, result, error: '', input },
+        }))
+      } else {
+        setRunStates(prev => ({
+          ...prev,
+          [nodeId]: { running: false, result: null, error: res.error || 'Run failed', input },
+        }))
+      }
+    } catch (e: any) {
+      setRunStates(prev => ({
+        ...prev,
+        [nodeId]: { running: false, result: null, error: e?.message || String(e), input },
+      }))
+    }
+  }, [])
+
+  const openRunModal = useCallback((node: NodeConfig) => {
+    setRunModalNode(node)
+    setRunModalInput('')
+  }, [])
+
+  const closeRunModal = useCallback(() => {
+    setRunModalNode(null)
+    setRunModalInput('')
+  }, [])
+
+  const openResultModal = useCallback((node: NodeConfig, result: WorkflowResult) => {
+    setResultModal({ node, result })
+  }, [])
+
+  const closeResultModal = useCallback(() => {
+    setResultModal(null)
+  }, [])
+
+  const confirmRun = useCallback(() => {
+    if (!runModalNode) return
+    handleRun(runModalNode.id, runModalInput)
+    closeRunModal()
+  }, [runModalNode, runModalInput, handleRun, closeRunModal])
+
   return (
     <div className="th-workspace">
       <div className="th-workspace-toolbar">
@@ -164,6 +227,7 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
               {nodes.map(node => {
                 const pos = positions[node.id] || { x: 0, y: 0, width: DEFAULT_NODE_W, height: DEFAULT_NODE_H }
                 const resolvedTasks = node.tasks.map(tid => taskMap[tid]).filter(Boolean)
+                const rs = runStates[node.id]
                 return (
                   <div key={node.id}
                     className={`th-canvas-node th-canvas-node-${node.mode} ${selection === node.id ? 'selected' : ''}`}
@@ -199,6 +263,50 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
                       <span>{node.description || '未填写描述'}</span>
                       <span className="th-canvas-mode-pill">{node.mode}</span>
                     </div>
+                    {/* Quick Run button in the card footer */}
+                    <div style={{
+                      display: 'flex', gap: '6px', padding: '6px 10px 8px',
+                      borderTop: '1px solid rgba(147,197,253,0.5)',
+                    }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openRunModal(node) }}
+                        disabled={rs?.running || node.tasks.length === 0}
+                        style={{
+                          flex: 1, padding: '5px 8px', borderRadius: '6px',
+                          fontSize: '11px', fontWeight: 600, cursor: rs?.running ? 'wait' : 'pointer',
+                          border: '1px solid #2563eb', background: rs?.running ? '#93c5fd' : '#2563eb',
+                          color: 'white', transition: 'all 0.15s',
+                        }}
+                        title="直接运行 Node，不依赖 Agent 对话"
+                      >
+                        {rs?.running ? '运行中…' : '▶ 运行'}
+                      </button>
+                      {rs?.result && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openResultModal(node, rs.result!) }}
+                          style={{
+                            flexShrink: 0, padding: '5px 8px', borderRadius: '6px', fontSize: '10px',
+                            fontWeight: 600, background: rs.result.ok ? '#dcfce7' : '#fee2e2',
+                            color: rs.result.ok ? '#166534' : '#991b1b',
+                            border: 'none', cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                          }}
+                          title="点击查看运行结果"
+                        >
+                          {rs.result.status === 'success' ? '✓' : rs.result.status === 'partial_failure' ? '⚠' : '✗'}{' '}
+                          {rs.result.steps.length} 步 · 查看
+                        </button>
+                      )}
+                      {rs?.error && (
+                        <span style={{
+                          flexShrink: 0, padding: '5px 8px', borderRadius: '6px', fontSize: '10px',
+                          background: '#fee2e2', color: '#991b1b',
+                          maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }} title={rs.error}>
+                          ✗ {rs.error}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -215,6 +323,67 @@ export function NodeWorkspace({ nodes: sourceNodes, availableTools, availableLLM
           onEquip={onEquip}
         />
       </div>
+      {/* Run modal */}
+      {runModalNode && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+          onClick={closeRunModal}>
+          <div style={{
+            background: 'white', borderRadius: '12px', padding: '20px', width: '480px', maxWidth: '90vw',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: '14px',
+          }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <strong style={{ fontSize: '14px' }}>运行 Node</strong>
+                <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
+                  {runModalNode.name} &middot; {runModalNode.mode.toUpperCase()}
+                </div>
+              </div>
+              <button onClick={closeRunModal} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#6b7280' }}>&times;</button>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>
+                附加请求（可选）
+              </label>
+              <textarea
+                value={runModalInput}
+                onChange={e => setRunModalInput(e.target.value)}
+                placeholder="可留空。留空时 task 按任务说明自主执行，不依赖用户输入。"
+                rows={4}
+                style={{
+                  width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '8px',
+                  fontSize: '12px', resize: 'vertical', outline: 'none', fontFamily: 'inherit',
+                  boxSizing: 'border-box',
+                }}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) confirmRun() }}
+              />
+              <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px' }}>Ctrl+Enter 快速运行 · 不填则 task 自包含执行</div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={closeRunModal} style={{
+                padding: '8px 16px', borderRadius: '6px', border: '1px solid #e5e7eb',
+                background: 'white', fontSize: '12px', cursor: 'pointer',
+              }}>取消</button>
+              <button onClick={confirmRun} disabled={runModalNode?.tasks.length === 0} style={{
+                padding: '8px 18px', borderRadius: '6px', border: 'none',
+                background: runModalNode?.tasks.length ? '#2563eb' : '#93c5fd',
+                color: 'white', fontSize: '12px', fontWeight: 600, cursor: runModalNode?.tasks.length ? 'pointer' : 'not-allowed',
+              }}>运行</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Result viewer modal */}
+      {resultModal && (
+        <ResultModal
+          node={resultModal.node}
+          result={resultModal.result}
+          onClose={closeResultModal}
+        />
+      )}
     </div>
   )
 }
@@ -307,6 +476,23 @@ function NodeInspector({ node, allTasks, availableLLMs, equipped, onUpdate, onDe
             ))}
           </div>
           <span className="th-inspector-hint">{node.mode === 'pipeline' ? 'Task 按顺序链式执行' : 'LLM 动态选择 Task'}</span>
+          {node.mode === 'pipeline' && (
+            <>
+              <span className="th-inspector-label">首个 Task 输入来源</span>
+              <div className="th-inspector-mode-buttons">
+                {(['self', 'user'] as const).map(s => (
+                  <button key={s} className={node.firstTaskInput === s ? 'active' : ''} onClick={() => update({ firstTaskInput: s })}>
+                    {s === 'self' ? '自包含（推荐）' : '使用用户输入'}
+                  </button>
+                ))}
+              </div>
+              <span className="th-inspector-hint">
+                {node.firstTaskInput === 'self'
+                  ? '首个 task 使用空输入，task 自包含不受用户输入污染'
+                  : '首个 task 使用 node 运行时用户输入（向后兼容）'}
+              </span>
+            </>
+          )}
         </div>
       </section>
       <section className="th-inspector-group">
@@ -346,7 +532,7 @@ function NodeInspector({ node, allTasks, availableLLMs, equipped, onUpdate, onDe
                 <span style={{ color: '#10b981', fontWeight: 600 }}>+</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500 }}>{task.name}</div>
-                  <div style={{ fontSize: '10px', color: '#9ca3af' }}>{task.description}</div>
+                  <div style={{ fontSize: '10px', color: '#9ca3af' }}>{task.description || task.taskPrompt.slice(0, 40)}</div>
                 </div>
               </button>
             ))}
@@ -359,5 +545,228 @@ function NodeInspector({ node, allTasks, availableLLMs, equipped, onUpdate, onDe
         <button className="danger" onClick={() => { if (confirm(`确定删除 "${node.name}"？`)) onDelete(node.id) }}>删除</button>
       </div>
     </aside>
+  )
+}
+
+// ===== Result Modal =====
+
+interface ResultModalProps {
+  node: NodeConfig
+  result: WorkflowResult
+  onClose: () => void
+}
+
+const STATUS_COLORS: Record<string, { bg: string; fg: string; icon: string }> = {
+  success:        { bg: '#dcfce7', fg: '#166534', icon: '✓' },
+  partial_failure:{ bg: '#fef3c7', fg: '#92400e', icon: '⚠' },
+  failed:         { bg: '#fee2e2', fg: '#991b1b', icon: '✗' },
+  timeout:        { bg: '#fee2e2', fg: '#991b1b', icon: '⏱' },
+  cancelled:      { bg: '#e5e7eb', fg: '#374151', icon: '⊘' },
+}
+
+function ResultModal({ node, result, onClose }: ResultModalProps) {
+  const [activeTab, setActiveTab] = useState<'final' | 'steps' | 'raw'>('final')
+  const sc = STATUS_COLORS[result.status] || STATUS_COLORS.failed
+  const duration = (new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime())
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 10000,
+      background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}
+      onClick={onClose}>
+      <div style={{
+        background: 'white', borderRadius: '12px', width: '720px', maxWidth: '92vw',
+        maxHeight: '88vh', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 24px 70px rgba(0,0,0,0.25)', overflow: 'hidden',
+      }}
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={{
+          padding: '16px 20px', borderBottom: '1px solid #e5e7eb',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+          gap: '12px',
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+              <strong style={{ fontSize: '15px', color: '#111827' }}>{node.name}</strong>
+              <span style={{
+                padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                background: sc.bg, color: sc.fg,
+              }}>{sc.icon} {result.status}</span>
+              <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', background: '#f3f4f6', color: '#374151' }}>
+                {result.steps.length} 步 · {duration}ms
+              </span>
+            </div>
+            <div style={{ fontSize: '11px', color: '#6b7280' }}>
+              runId: <code style={{ background: '#f3f4f6', padding: '1px 4px', borderRadius: '3px' }}>{result.runId}</code>
+              {' · '}
+              {new Date(result.startedAt).toLocaleString()}
+            </div>
+            {result.error && (
+              <div style={{
+                marginTop: '8px', padding: '8px 10px', borderRadius: '6px',
+                background: '#fef2f2', border: '1px solid #fecaca', fontSize: '11px', color: '#991b1b',
+              }}>
+                <strong>错误：</strong>{result.error.code} — {result.error.message}
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} style={{
+            background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer',
+            color: '#6b7280', lineHeight: 1, padding: '0 4px',
+          }} aria-label="关闭">&times;</button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{
+          display: 'flex', gap: '4px', padding: '8px 20px 0',
+          borderBottom: '1px solid #e5e7eb',
+        }}>
+          {([
+            { key: 'final', label: `最终输出${result.output ? ` (${String(result.output).length})` : ''}` },
+            { key: 'steps', label: `步骤详情 (${result.steps.length})` },
+            { key: 'raw', label: '原始 JSON' },
+          ] as const).map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
+              padding: '6px 12px', border: 'none', background: 'transparent', cursor: 'pointer',
+              fontSize: '12px', fontWeight: activeTab === tab.key ? 600 : 400,
+              color: activeTab === tab.key ? '#2563eb' : '#6b7280',
+              borderBottom: activeTab === tab.key ? '2px solid #2563eb' : '2px solid transparent',
+              marginBottom: '-1px',
+            }}>{tab.label}</button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div style={{
+          flex: 1, overflow: 'auto', padding: '16px 20px',
+          background: '#fafafa',
+        }}>
+          {activeTab === 'final' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <strong style={{ fontSize: '12px', color: '#374151' }}>节点最终输出</strong>
+                <button onClick={() => copyText(String(result.output ?? ''))} style={{
+                  padding: '3px 10px', borderRadius: '4px', border: '1px solid #e5e7eb',
+                  background: 'white', fontSize: '11px', cursor: 'pointer', color: '#374151',
+                }}>📋 复制</button>
+              </div>
+              <pre style={{
+                background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px',
+                padding: '12px 14px', margin: 0, fontSize: '12px', lineHeight: 1.6,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#111827',
+                maxHeight: '52vh', overflow: 'auto',
+              }}>{result.output !== undefined && result.output !== null ? String(result.output) : '(空输出)'}</pre>
+            </div>
+          )}
+
+          {activeTab === 'steps' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {result.steps.length === 0 && (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#9ca3af', fontSize: '12px' }}>
+                  没有执行任何步骤
+                </div>
+              )}
+              {result.steps.map((step, i) => {
+                const stepColor = STATUS_COLORS[step.status] || STATUS_COLORS.failed
+                return (
+                  <div key={i} style={{
+                    background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px',
+                    padding: '10px 12px',
+                  }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px',
+                    }}>
+                      <span style={{
+                        width: '22px', height: '22px', borderRadius: '50%',
+                        background: stepColor.bg, color: stepColor.fg,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '11px', fontWeight: 700, flexShrink: 0,
+                      }}>{i + 1}</span>
+                      <strong style={{ fontSize: '12px', color: '#111827' }}>{step.taskName}</strong>
+                      <span style={{
+                        padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 600,
+                        background: stepColor.bg, color: stepColor.fg,
+                      }}>{stepColor.icon} {step.status}</span>
+                      <span style={{ fontSize: '10px', color: '#9ca3af', marginLeft: 'auto' }}>
+                        {step.durationMs}ms
+                      </span>
+                    </div>
+                    {step.input !== undefined && step.input !== null && (
+                      <details style={{ marginBottom: '6px' }}>
+                        <summary style={{
+                          fontSize: '11px', color: '#6b7280', cursor: 'pointer',
+                          padding: '2px 0', userSelect: 'none',
+                        }}>▸ 输入 ({String(step.input).length} 字符)</summary>
+                        <pre style={{
+                          background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '4px',
+                          padding: '8px 10px', margin: '4px 0 0', fontSize: '11px', lineHeight: 1.5,
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#374151',
+                        }}>{String(step.input)}</pre>
+                      </details>
+                    )}
+                    {step.output !== undefined && step.output !== null && (
+                      <details open>
+                        <summary style={{
+                          fontSize: '11px', color: '#6b7280', cursor: 'pointer',
+                          padding: '2px 0', userSelect: 'none',
+                        }}>▾ 输出 ({String(step.output).length} 字符)</summary>
+                        <pre style={{
+                          background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '4px',
+                          padding: '8px 10px', margin: '4px 0 0', fontSize: '11px', lineHeight: 1.5,
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#111827',
+                        }}>{String(step.output)}</pre>
+                      </details>
+                    )}
+                    {step.error && (
+                      <div style={{
+                        background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px',
+                        padding: '6px 8px', fontSize: '11px', color: '#991b1b', marginTop: '4px',
+                      }}>
+                        <strong>{step.error.code}</strong>: {step.error.message}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {activeTab === 'raw' && (
+            <pre style={{
+              background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px',
+              padding: '12px 14px', margin: 0, fontSize: '11px', lineHeight: 1.5,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#111827',
+            }}>{JSON.stringify(result, null, 2)}</pre>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '10px 20px', borderTop: '1px solid #e5e7eb',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          fontSize: '11px', color: '#6b7280',
+        }}>
+          <span>{result.steps.filter(s => s.status === 'success').length} 成功 / {result.steps.filter(s => s.status === 'failed').length} 失败 / {result.steps.filter(s => s.status === 'skipped').length} 跳过</span>
+          <button onClick={onClose} style={{
+            padding: '6px 14px', borderRadius: '6px', border: '1px solid #e5e7eb',
+            background: 'white', fontSize: '12px', cursor: 'pointer', color: '#374151',
+          }}>关闭</button>
+        </div>
+      </div>
+    </div>
   )
 }

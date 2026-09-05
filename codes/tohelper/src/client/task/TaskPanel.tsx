@@ -100,7 +100,7 @@ export function TaskPanel({ btnPos, onClose }: Props) {
       taskPrompt: '',
       llm: { provider: 'deepseek-official', model: 'deepseek-chat', temperature: 0.7, maxTokens: 2000 },
       tools: [],
-      inputSchema: { type: 'object', properties: { input: { type: 'string', description: '输入文本' } }, required: ['input'] },
+      inputSchema: { type: 'object', properties: { input: { type: 'string', description: '附加请求（可选）' } }, required: [] },
       outputSchema: { type: 'object', properties: { result: { type: 'string', description: '输出结果' } }, required: ['result'] },
       createdAt: new Date().toISOString(),
     })
@@ -197,12 +197,12 @@ function TaskEditor({ task, equipped, availableTools, availableLLMs, onChange, o
         <input value={task.name} onChange={e => update({ name: e.target.value })} placeholder="my_task" style={{ width: '100%', marginTop: '4px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
       </label>
       <label style={{ fontSize: '12px', color: '#374151' }}>
-        描述
-        <input value={task.description} onChange={e => update({ description: e.target.value })} placeholder="这个 Task 做什么" style={{ width: '100%', marginTop: '4px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
+        描述（可选，用于 task 作为工具时显示）
+        <input value={task.description ?? ''} onChange={e => update({ description: e.target.value })} placeholder="可留空，框架会自动从任务说明派生" style={{ width: '100%', marginTop: '4px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
       </label>
       <label style={{ fontSize: '12px', color: '#374151' }}>
-        Task Prompt (系统提示词)
-        <textarea value={task.taskPrompt} onChange={e => update({ taskPrompt: e.target.value })} rows={5} placeholder="告诉 LLM 如何处理输入..." style={{ width: '100%', marginTop: '4px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', resize: 'vertical' }} />
+        任务说明（Task Prompt）
+        <textarea value={task.taskPrompt} onChange={e => update({ taskPrompt: e.target.value })} rows={5} placeholder={`描述这个任务做什么、调用什么工具、输出什么。\n即使运行时没有附加请求，task 也应能自主完成基本工作。\n例如：\n调用 available-coupons 工具查询麦当劳优惠券，整理成结构化列表输出。如果附加请求指定了地区，则按请求过滤。`} style={{ width: '100%', marginTop: '4px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', resize: 'vertical' }} />
       </label>
       <div style={{ display: 'flex', gap: '12px' }}>
         <label style={{ flex: 2, fontSize: '12px', color: '#374151' }}>
@@ -224,6 +224,21 @@ function TaskEditor({ task, equipped, availableTools, availableLLMs, onChange, o
         <select multiple size={Math.min(5, Math.max(availableTools.length, 2))} value={task.tools} onChange={e => update({ tools: Array.from(e.target.selectedOptions).map(o => o.value) })} style={{ width: '100%', marginTop: '4px', padding: '4px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '12px' }}>
           {availableTools.length ? availableTools.map(tool => <option key={tool} value={tool}>{tool}</option>) : <option disabled>暂无可用工具</option>}
         </select>
+      </label>
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', color: '#374151', padding: '8px', borderRadius: '6px', border: '1px solid #d1fae5', background: '#f0fdf4' }}>
+        <input
+          type="checkbox"
+          checked={task.directMode ?? false}
+          onChange={e => update({ directMode: e.target.checked })}
+          style={{ marginTop: '2px', flexShrink: 0, cursor: 'pointer', accentColor: '#10b981', width: '16px', height: '16px' }}
+        />
+        <div>
+          <div style={{ fontWeight: 600, color: '#065f46' }}>直接模式 (推荐强模型)</div>
+          <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
+            开启后跳过参数提取步骤，直接让 LLM 通过函数调用执行工具。减少一次 LLM 调用，速度更快。
+            <strong>仅在使用支持 function calling 的模型时开启</strong>（如 deepseek-reasoner、claude、openai 等）。
+          </div>
+        </div>
       </label>
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
         <button className="th-btn th-btn-primary" onClick={onSave} style={{ flex: 1 }}>保存</button>

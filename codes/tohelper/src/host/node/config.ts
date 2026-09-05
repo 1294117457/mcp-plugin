@@ -76,8 +76,8 @@ export function validateName(name: string): string | null {
 
 const DEFAULT_INPUT_SCHEMA = {
   type: 'object' as const,
-  properties: { input: { type: 'string', description: '输入文本' } },
-  required: ['input'],
+  properties: { input: { type: 'string', description: '附加请求（可选）' } },
+  required: [],
 }
 
 const DEFAULT_OUTPUT_SCHEMA = {
@@ -91,8 +91,8 @@ export function validateTaskData(data: any): { error?: string; task?: Omit<TaskC
   const nameError = validateName(data.name)
   if (nameError) return { error: nameError }
 
-  if (!data.description || typeof data.description !== 'string') return { error: 'description is required' }
-  if (data.description.length > 200) return { error: 'description must be ≤ 200 chars' }
+  if (data.description != null && typeof data.description !== 'string') return { error: 'description must be a string' }
+  if (data.description && data.description.length > 200) return { error: 'description must be ≤ 200 chars' }
 
   if (!data.taskPrompt || typeof data.taskPrompt !== 'string') return { error: 'taskPrompt is required' }
 
@@ -102,7 +102,7 @@ export function validateTaskData(data: any): { error?: string; task?: Omit<TaskC
 
   const task: Omit<TaskConfig, 'id' | 'createdAt'> = {
     name: data.name,
-    description: data.description,
+    ...(data.description ? { description: data.description } : {}),
     taskPrompt: data.taskPrompt,
     llm: {
       provider: data.llm.provider,
@@ -111,6 +111,7 @@ export function validateTaskData(data: any): { error?: string; task?: Omit<TaskC
       ...(data.llm.maxTokens != null ? { maxTokens: data.llm.maxTokens } : {}),
     },
     tools: Array.isArray(data.tools) ? data.tools.filter((t: unknown) => typeof t === 'string') : [],
+    ...(data.directMode === true ? { directMode: true } : {}),
     inputSchema: data.inputSchema || DEFAULT_INPUT_SCHEMA,
     outputSchema: data.outputSchema || DEFAULT_OUTPUT_SCHEMA,
   }
@@ -156,6 +157,11 @@ export function validateNodeData(data: any, allTaskIds: string[]): { error?: str
     return { error: 'failurePolicy must be "fail_fast", "continue", or "retry_then_continue"' }
   }
 
+  const firstTaskInput = data.firstTaskInput || 'self'
+  if (!['self', 'user'].includes(firstTaskInput)) {
+    return { error: 'firstTaskInput must be "self" or "user"' }
+  }
+
   const node: Omit<NodeConfig, 'id' | 'createdAt'> = {
     name: data.name,
     description: data.description,
@@ -168,11 +174,11 @@ export function validateNodeData(data: any, allTaskIds: string[]): { error?: str
       ...(data.llm.maxTokens != null ? { maxTokens: data.llm.maxTokens } : {}),
     },
     tasks: data.tasks,
+    firstTaskInput,
     inputSchema: data.inputSchema || DEFAULT_INPUT_SCHEMA,
     outputSchema: data.outputSchema || DEFAULT_OUTPUT_SCHEMA,
     triggerMode,
     failurePolicy,
-    ...(Array.isArray(data.aliases) && data.aliases.length > 0 ? { aliases: data.aliases } : {}),
   }
 
   return { node }

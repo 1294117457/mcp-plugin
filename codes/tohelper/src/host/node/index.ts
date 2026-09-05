@@ -19,9 +19,13 @@ export function setupNodeModule(ctx: Context, config: ConfigFile, tracker: Agent
   console.log(`[tohelper] node module: ${Object.keys(config.nodes).length} nodes`)
 
   function buildToolDef(node: ConfigFile['nodes'][string]) {
+    // Build a clear, LLM-discoverable description: include the name, description, and an explicit invocation hint.
+    const hint = `当用户提到 "${node.name}" 或需要执行麦当劳查询时，调用此工具。`
+    const fullDescription = `${node.description}\n\n${hint}`
+
     return {
       name: node.name,
-      description: node.description,
+      description: fullDescription,
       parameters: node.inputSchema,
       output: {
         schema: node.outputSchema,

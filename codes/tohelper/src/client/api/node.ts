@@ -61,6 +61,11 @@ export const nodeApi = {
   delete: (id: string) => postJson<{ ok: boolean; error?: string }>(`${NODE_BASE}/delete`, { id }),
   equip: (id: string) => postJson<{ ok: boolean; toolName?: string; error?: string }>(`${NODE_BASE}/equip`, { id }),
   unequip: (id: string) => postJson<{ ok: boolean; error?: string }>(`${NODE_BASE}/unequip`, { id }),
+  run: (nodeId: string, input?: unknown) =>
+    postJson<{ ok: boolean; runId?: string; status?: string; result?: unknown; error?: string }>(
+      `${NODE_BASE}/run`,
+      { nodeId, input },
+    ),
 }
 
 // ===== Config API =====
